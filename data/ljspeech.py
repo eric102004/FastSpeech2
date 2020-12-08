@@ -10,7 +10,7 @@ from text import _clean_text
 import hparams as hp
 
 def prepare_align(in_dir):
-    with open(os.path.join(in_dir, 'metadata.csv'), encoding='utf-8') as f:
+    with open(os.path.join(in_dir, 'metadata_that.csv'), encoding='utf-8') as f:  #change
         for line in f:
             parts = line.strip().split('|')
             basename = parts[0]
@@ -27,7 +27,7 @@ def build_from_path(in_dir, out_dir):
     f0_max = energy_max = 0
     f0_min = energy_min = 1000000
     n_frames = 0
-    with open(os.path.join(in_dir, 'metadata.csv'), encoding='utf-8') as f:
+    with open(os.path.join(in_dir, 'metadata_that.csv'), encoding='utf-8') as f:  #chane
         for line in f:
             parts = line.strip().split('|')
             basename = parts[0]
@@ -38,8 +38,18 @@ def build_from_path(in_dir, out_dir):
                 continue
             else:
                 info, f_max, f_min, e_max, e_min, n = ret
+            #added by eric
+            '''
+            print("info:",info)
+            print("f_max:",f_max)
+            print("f_min:",f_min)
+            print("e_max:",e_max)
+            print("e_min:",e_min)
+            print("n:",n)
+            print(done)
+            '''
             
-            if basename[:5] in ['LJ001', 'LJ002', 'LJ003']:
+            if basename[:2] in ['06']:
                 val.append(info)
             else:
                 train.append(info)
@@ -74,6 +84,13 @@ def process_utterance(in_dir, out_dir, basename):
     # Get alignments
     textgrid = tgt.io.read_textgrid(tg_path)
     phone, duration, start, end = get_alignment(textgrid.get_tier_by_name('phones'))
+    '''
+    print("basename:",basename)
+    print("phone:",phone)
+    print("duration:",duration)
+    print("start:",start)
+    print("end",end)
+    '''
     text = '{'+ '}{'.join(phone) + '}' # '{A}{B}{$}{C}', $ represents silent phones
     text = text.replace('{$}', ' ')    # '{A}{B} {C}'
     text = text.replace('}{', ' ')     # '{A B} {C}'
@@ -83,11 +100,21 @@ def process_utterance(in_dir, out_dir, basename):
 
     # Read and trim wav files
     _, wav = read(wav_path)
+    #print("len of wav(before):", len(wav))
     wav = wav[int(hp.sampling_rate*start):int(hp.sampling_rate*end)].astype(np.float32)
-    
+
+    #print(np.size(wav,0))           #自加: remove the wav files that are too short
+    if np.size(wav,0)<1024:
+        return None
+    '''
+    print("sum of duration:", sum(duration))
+    print("len of wav(after)", len(wav))
+    '''
     # Compute fundamental frequency
-    f0, _ = pw.dio(wav.astype(np.float64), hp.sampling_rate, frame_period=hp.hop_length/hp.sampling_rate*1000)
+    f0, _ = pw.dio(wav.astype(np.float64), hp.sampling_rate, frame_period=hp.hop_length/hp.sampling_rate*1000)            #change from dio to harvest
     f0 = f0[:sum(duration)]
+    if max(f0)==0:                    #自加: remove the wav files which f0 are all 0
+        return None
 
     # Compute mel-scale spectrogram and energy
     mel_spectrogram, energy = Audio.tools.get_mel_from_wav(torch.FloatTensor(wav))
@@ -95,7 +122,13 @@ def process_utterance(in_dir, out_dir, basename):
     energy = energy.numpy().astype(np.float32)[:sum(duration)]
     if mel_spectrogram.shape[1] >= hp.max_seq_len:
         return None
-
+    '''
+    #added by eric
+    print("wav:\n",wav)
+    print("f0:\n",f0)
+    print("mel_spectrogram:\n",mel_spectrogram)
+    print("energy:",energy)
+    '''
     # Save alignment
     ali_filename = '{}-ali-{}.npy'.format(hp.dataset, basename)
     np.save(os.path.join(out_dir, 'alignment', ali_filename), duration, allow_pickle=False)
@@ -111,5 +144,5 @@ def process_utterance(in_dir, out_dir, basename):
     # Save spectrogram
     mel_filename = '{}-mel-{}.npy'.format(hp.dataset, basename)
     np.save(os.path.join(out_dir, 'mel', mel_filename), mel_spectrogram.T, allow_pickle=False)
- 
-    return '|'.join([basename, text]), max(f0), min([f for f in f0 if f != 0]), max(energy), min(energy), mel_spectrogram.shape[1]
+
+    return '|'.join([basename, text]), max(f0), min([f for f in f0 if f>0]), max(energy), min(energy), mel_spectrogram.shape[1]              #change: f0 can be zero

@@ -2,7 +2,39 @@ import os
 from data import ljspeech, blizzard2013
 import hparams as hp
 
-def write_metadata(train, val, out_dir):
+def read_metadata_all(train_path = 'preprocessed/LJSpeech/train_all.txt', val_path = 'preprocessed/LJSpeech/val_all.txt'):
+    train = []
+    #count_list = [0 for i in range(5)]
+    train_count = 0
+    target_speaker = 1
+    val = []
+    val_count = 0
+    bound = 9
+    with open(train_path , 'r+') as F:
+        lines =  F.readlines()
+        for line in lines:
+            index = int(line[1])-1
+            if index==target_speaker-1 and train_count<bound:
+                train.append(line.strip())
+                train_count+=1
+
+    with open(val_path, 'r+') as F:
+        lines = F.readlines()
+        for line in lines:
+            if val_count>=bound:
+                break
+            else:
+                val.append(line.strip())
+                val_count+=1
+
+    print('num of training data:',len(train))
+    print('num of val data:',len(val))
+    assert len(train)==bound 
+    assert len(val) ==bound
+    return train, val
+            
+
+def write_metadata(train, val, out_dir = 'preprocessed/LJSpeech'):
     with open(os.path.join(out_dir, 'train.txt'), 'w', encoding='utf-8') as f:
         for m in train:
             f.write(m + '\n')
@@ -33,4 +65,5 @@ def main():
     write_metadata(train, val, out_dir)
     
 if __name__ == "__main__":
-    main()
+    train, val =  read_metadata_all()
+    write_metadata(train, val)

@@ -53,6 +53,10 @@ class VarianceAdaptor(nn.Module):
         else:
             energy_embedding = self.energy_embedding(torch.bucketize(energy_prediction, self.energy_bins))
         
+        #print('pitch_target:',pitch_target.size())            #自加:check the dim of x and f are met
+        #print('x:',x.size())
+        #print('pitch:',pitch_embedding.size())
+        #print('energy:',energy_embedding.size())
         x = x + pitch_embedding + energy_embedding
         
         return x, log_duration_prediction, pitch_prediction, energy_prediction, mel_len, mel_mask

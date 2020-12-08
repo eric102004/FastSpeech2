@@ -21,15 +21,22 @@ def main(args):
     torch.manual_seed(0)
 
     # Get device
+    print(torch.cuda.is_available(),'\n')
+    if torch.cuda.is_available():
+        print("using GPU\n")
+    else:
+        print("using cpu\n")
     device = torch.device('cuda'if torch.cuda.is_available()else 'cpu')
     
     # Get dataset
+    print("loading dataset...\n")
     dataset = Dataset("train.txt") 
     loader = DataLoader(dataset, batch_size=hp.batch_size**2, shuffle=True, 
         collate_fn=dataset.collate_fn, drop_last=True, num_workers=0)
 
     # Define model
-    model = nn.DataParallel(FastSpeech2()).to(device)
+    #model = nn.DataParallel(FastSpeech2()).to(device)
+    model = FastSpeech2().to(device)
     print("Model Has Been Defined")
     num_param = utils.get_param_num(model)
     print('Number of FastSpeech2 Parameters:', num_param)
@@ -80,16 +87,17 @@ def main(args):
     Start = time.perf_counter()
     
     # Training
+    print("start training\n")
     model = model.train()
     for epoch in range(hp.epochs):
         # Get Training Loader
-        total_step = hp.epochs * len(loader) * hp.batch_size
+        total_step = hp.epochs * len(loader) * hp.batch_size     #change: remove *hp.batch_size
 
-        for i, batchs in enumerate(loader):
+        for i, batchs in enumerate(loader):      #change : for j data of batches
             for j, data_of_batch in enumerate(batchs):
                 start_time = time.perf_counter()
 
-                current_step = i*hp.batch_size + j + args.restore_step + epoch*len(loader)*hp.batch_size + 1
+                current_step = i*hp.batch_size + j + args.restore_step + epoch*len(loader)*hp.batch_size + 1                      #change: using only i
                 
                 # Get Data
                 text = torch.from_numpy(data_of_batch["text"]).long().to(device)
