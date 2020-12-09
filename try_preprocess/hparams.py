@@ -14,9 +14,9 @@ text_cleaners = ['english_cleaners']
 # Audio and mel
 ### for LJSpeech ###
 sampling_rate = 22050
-filter_length = 1024        
-hop_length = 256                    
-win_length = 1024                    
+filter_length = 1024
+hop_length = 256
+win_length = 1024
 ### for Blizzard2013 ###
 #sampling_rate = 16000
 #filter_length = 800
@@ -36,7 +36,7 @@ encoder_hidden = 256
 decoder_layer = 4
 decoder_head = 2
 decoder_hidden = 256
-fft_conv1d_filter_size = 1024   
+fft_conv1d_filter_size = 1024
 fft_conv1d_kernel_size = (9, 1)
 encoder_dropout = 0.2
 decoder_dropout = 0.2
@@ -50,17 +50,10 @@ max_seq_len = 1000
 
 # Quantization for F0 and energy
 ### for LJSpeech ###
-<<<<<<< Updated upstream
-f0_min = 112.0                 #71.0 
-f0_max = 719.0                    #795.8
-energy_min = 0.028                   #0.018
-energy_max =  315.0                      #315.0
-=======
 f0_min = 71.0
 f0_max = 795.8
 energy_min = 0.018
 energy_max = 315.0
->>>>>>> Stashed changes
 ### for Blizzard2013 ###
 #f0_min = 71.0
 #f0_max = 786.7
@@ -80,7 +73,7 @@ test_path = "./results"
 
 
 # Optimizer
-batch_size = 3                #original:16
+batch_size = 16
 epochs = 1000
 n_warm_up_step = 4000
 grad_clip_thresh = 1.0
@@ -104,5 +97,5 @@ save_step = 10000
 synth_step = 1000
 eval_step = 1000
 eval_size = 256
-log_step = 10              #change from 1000 to 10  
+log_step = 1000
 clear_Time = 20
