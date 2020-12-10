@@ -50,17 +50,11 @@ max_seq_len = 1000
 
 # Quantization for F0 and energy
 ### for LJSpeech ###
-<<<<<<< Updated upstream
-f0_min = 112.0                 #71.0 
-f0_max = 719.0                    #795.8
-energy_min = 0.028                   #0.018
-energy_max =  315.0                      #315.0
-=======
 f0_min = 71.0
 f0_max = 795.8
 energy_min = 0.018
 energy_max = 315.0
->>>>>>> Stashed changes
+
 ### for Blizzard2013 ###
 #f0_min = 71.0
 #f0_max = 786.7
@@ -106,3 +100,14 @@ eval_step = 1000
 eval_size = 256
 log_step = 10              #change from 1000 to 10  
 clear_Time = 20
+
+
+#--------------------------------------------------
+#some parameters for iMAML
+reg_param = 2               #the coef of the distance loss of model parameters in inner loop training
+T = 16           # the steps taken in inner loop
+K = 5            # the steps taken in computing hypergradient
+n_tasks_test = 1000  # the num of tasks taken in testing phase
+inner_lr = .1     # learning rate of inner loop
+num_subtasks = 5           # the num of subtasks in meta learning (num o speakers),used to initializedataset
+num_subtask_data = 60      # the hum of data in each subtasks, used to initialize the dataset

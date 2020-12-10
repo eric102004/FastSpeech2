@@ -55,6 +55,29 @@ def process_meta(meta_path):
             text.append(t)
         return name, text
 
+def meta_process_meta(meta_file_list, num_subtasks, num_subtask_data):
+    #initializing
+    text = [[None for j in range(num_subtasks)] for i in range(num_subtask_data)]
+    name = [[None for j in range(num_subtasks)] for i in range(num_subtask_data)]
+    for task_idx, filename in enumerate(meta_file_list):
+        filepath = os.path.join(hp.preprocessed_path, filename)
+        with open(filepath, "r", encoding="utf-8") as f:
+            count  = 0
+            for line in f.readlines():
+                n, t = line.strip('\n').split('|')
+                name[count][task_idx] = n
+                text[count][task_idx] = t
+                count+=1
+                if count>=num_subtask_data:
+                    break
+    #check that there's no None after loading filename
+    for i in range(num_subtask_data):
+        assert not (None in text[i] or None in name[i]) 
+    
+    return name, text
+		
+	
+
 def get_param_num(model):
     num_param = sum(param.numel() for param in model.parameters())
     return num_param
