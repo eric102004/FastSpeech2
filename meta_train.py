@@ -1,256 +1,571 @@
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
-
-import numpy as np
+import math
 import argparse
-import os
 import time
 
-from fastspeech2 import FastSpeech2
-from loss import FastSpeech2Loss
-from dataset import Dataset
-from optimizer import ScheduledOptim
-from evaluate import evaluate
-import hparams as hp
-import utils
-import audio as Audio
+import numpy as np
+import torch
+from torch import nn
+from torch.nn import functional as F
 
-def main(args):
-    torch.manual_seed(0)
+from torchmeta.datasets.helpers import omniglot, miniimagenet
+from torchmeta.utils.data import BatchMetaDataLoader
 
-    # Get device
-    device = torch.device('cuda'if torch.cuda.is_available()else 'cpu')
-    
-    # Get dataset                                                       #modify 1
-    dataset_list = []
-    loader_list = []
-    for i in range(len(hp.train_n_subtasks)):                                #hp1
-	dataset_list.append(Dataset(f"train_{i+1}.txt"))
-	loader_list.append(DataLoader(dataset_list[i], batch_size = hp.n_shots , shuffle=True, collate_fn=dataset.collate_fn, drop_last=True, mum_workers=0))                                          #hp2
-    #dataset = Dataset("train.txt") 
-    #loader = DataLoader(dataset, batch_size=hp.batch_size**2, shuffle=True, 
-        #collate_fn=dataset.collate_fn, drop_last=True, num_workers=0)
+import higher
 
-    # Define model
-    model = nn.DataParallel(FastSpeech2()).to(device)
-    print("Model Has Been Defined")
-    num_param = utils.get_param_num(model)
-    print('Number of FastSpeech2 Parameters:', num_param)
+import hypergrad as hg
 
-    # Optimizer and loss                                    #moddify 2
-    optimizer = torch.optim.Adam(model.parameters(), betas=hp.betas, eps=hp.eps, weight_decay = hp.weight_decay)
-    scheduled_optim = ScheduledOptim(optimizer, hp.decoder_hidden, hp.n_warm_up_step, args.restore_step)
-    Loss = FastSpeech2Loss().to(device) 
-    print("Optimizer and Loss Function Defined.")
 
-    # Load checkpoint if exists
-    checkpoint_path = os.path.join(hp.checkpoint_path)
-    try:
-        checkpoint = torch.load(os.path.join(
-            checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
-        model.load_state_dict(checkpoint['model'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        print("\n---Model Restored at Step {}---\n".format(args.restore_step))
-    except:
-        print("\n---Start New Training---\n")
-        if not os.path.exists(checkpoint_path):
-            os.makedirs(checkpoint_path)
+class Task:
+    """
+    Handles the train and valdation loss for a single task
+    """
+    def __init__(self, reg_param, meta_model, data, batch_size=None):
+        device = next(meta_model.parameters()).device
 
-    # Load vocoder
-    if hp.vocoder == 'melgan':
-        melgan = utils.get_melgan()
-        melgan.to(device)
-    elif hp.vocoder == 'waveglow':
-        waveglow = utils.get_waveglow()
-        waveglow.to(device)
+        # stateless version of meta_model
+        self.fmodel = higher.monkeypatch(meta_model, device=device, copy_initial_weights=True)
 
-    # Init logger
-    log_path = hp.log_path
-    if not os.path.exists(log_path):
-        os.makedirs(log_path)
-        os.makedirs(os.path.join(log_path, 'train'))
-        os.makedirs(os.path.join(log_path, 'validation'))
-    train_logger = SummaryWriter(os.path.join(log_path, 'train'))
-    val_logger = SummaryWriter(os.path.join(log_path, 'validation'))
+        self.n_params = len(list(meta_model.parameters()))
+        self.train_input, self.train_target, self.test_input, self.test_target = data
+        self.reg_param = reg_param
+        self.batch_size = 1 if not batch_size else batch_size
+        self.val_loss, self.val_acc = None, None
 
-    # Init synthesis directory
-    synth_path = hp.synth_path
-    if not os.path.exists(synth_path):
-        os.makedirs(synth_path)
+    def bias_reg_f(self, bias, params):
+        # l2 biased regularization
+        return sum([((b - p) ** 2).sum() for b, p in zip(bias, params)])
 
-    # Define Some Information
-    Time = np.array([])
-    Start = time.perf_counter()
-    
-    # Training
-    model = model.train()
-    for epoch in range(hp.epochs):
-        # Get Training Loader
-        total_step = hp.epochs * len(loader) * hp.batch_size
+    def train_loss_f(self, params, hparams):
+        # biased regularized cross-entropy loss where the bias are the meta-parameters in hparams
+        out = self.fmodel(self.train_input, params=params)
+        return F.cross_entropy(out, self.train_target) + 0.5 * self.reg_param * self.bias_reg_f(hparams, params)
 
-        for i, batchs in enumerate(loader):
-            for j, data_of_batch in enumerate(batchs):
-                start_time = time.perf_counter()
+    def val_loss_f(self, params, hparams):
+        # cross-entropy loss (uses only the task-specific weights in params
+        out = self.fmodel(self.test_input, params=params)
+        val_loss = F.cross_entropy(out, self.test_target)/self.batch_size
+        self.val_loss = val_loss.item()  # avoid memory leaks
 
-                current_step = i*hp.batch_size + j + args.restore_step + epoch*len(loader)*hp.batch_size + 1
-                
-                # Get Data
-                text = torch.from_numpy(data_of_batch["text"]).long().to(device)
-                mel_target = torch.from_numpy(data_of_batch["mel_target"]).float().to(device)
-                D = torch.from_numpy(data_of_batch["D"]).long().to(device)
-                log_D = torch.from_numpy(data_of_batch["log_D"]).float().to(device)
-                f0 = torch.from_numpy(data_of_batch["f0"]).float().to(device)
-                energy = torch.from_numpy(data_of_batch["energy"]).float().to(device)
-                src_len = torch.from_numpy(data_of_batch["src_len"]).long().to(device)
-                mel_len = torch.from_numpy(data_of_batch["mel_len"]).long().to(device)
-                max_src_len = np.max(data_of_batch["src_len"]).astype(np.int32)
-                max_mel_len = np.max(data_of_batch["mel_len"]).astype(np.int32)
-                
-                # Forward
-                mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ = model(
-                    text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len)
-                
-                # Cal Loss
-                mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = Loss(
-                        log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
-                total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
-                 
-                # Logger
-                t_l = total_loss.item()
-                m_l = mel_loss.item()
-                m_p_l = mel_postnet_loss.item()
-                d_l = d_loss.item()
-                f_l = f_loss.item()
-                e_l = e_loss.item()
-                with open(os.path.join(log_path, "total_loss.txt"), "a") as f_total_loss:
-                    f_total_loss.write(str(t_l)+"\n")
-                with open(os.path.join(log_path, "mel_loss.txt"), "a") as f_mel_loss:
-                    f_mel_loss.write(str(m_l)+"\n")
-                with open(os.path.join(log_path, "mel_postnet_loss.txt"), "a") as f_mel_postnet_loss:
-                    f_mel_postnet_loss.write(str(m_p_l)+"\n")
-                with open(os.path.join(log_path, "duration_loss.txt"), "a") as f_d_loss:
-                    f_d_loss.write(str(d_l)+"\n")
-                with open(os.path.join(log_path, "f0_loss.txt"), "a") as f_f_loss:
-                    f_f_loss.write(str(f_l)+"\n")
-                with open(os.path.join(log_path, "energy_loss.txt"), "a") as f_e_loss:
-                    f_e_loss.write(str(e_l)+"\n")
-                 
-                # Backward
-                total_loss = total_loss / hp.acc_steps
-                total_loss.backward()
-                if current_step % hp.acc_steps != 0:
-                    continue
+        pred = out.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+        self.val_acc = pred.eq(self.test_target.view_as(pred)).sum().item() / len(self.test_target)
 
-                # Clipping gradients to avoid gradient explosion
-                nn.utils.clip_grad_norm_(model.parameters(), hp.grad_clip_thresh)
+        return val_loss
 
-                # Update weights
-                scheduled_optim.step_and_update_lr()
-                scheduled_optim.zero_grad()
-                
-                # Print
-                if current_step % hp.log_step == 0:
-                    Now = time.perf_counter()
 
-                    str1 = "Epoch [{}/{}], Step [{}/{}]:".format(
-                        epoch+1, hp.epochs, current_step, total_step)
-                    str2 = "Total Loss: {:.4f}, Mel Loss: {:.4f}, Mel PostNet Loss: {:.4f}, Duration Loss: {:.4f}, F0 Loss: {:.4f}, Energy Loss: {:.4f};".format(
-                        t_l, m_l, m_p_l, d_l, f_l, e_l)
-                    str3 = "Time Used: {:.3f}s, Estimated Time Remaining: {:.3f}s.".format(
-                        (Now-Start), (total_step-current_step)*np.mean(Time))
+def main():
 
-                    print("\n" + str1)
-                    print(str2)
-                    print(str3)
-                    
-                    with open(os.path.join(log_path, "log.txt"), "a") as f_log:
-                        f_log.write(str1 + "\n")
-                        f_log.write(str2 + "\n")
-                        f_log.write(str3 + "\n")
-                        f_log.write("\n")
+    parser = argparse.ArgumentParser(description='Data HyperCleaner')
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--dataset', type=str, default='omniglot', metavar='N', help='omniglot or miniimagenet')
+    parser.add_argument('--hg-mode', type=str, default='CG', metavar='N',
+                        help='hypergradient approximation: CG or fixed_point')
+    parser.add_argument('--no-cuda', action='store_true', default=False,
+                        help='disables CUDA training')
 
-                    train_logger.add_scalar('Loss/total_loss', t_l, current_step)
-                    train_logger.add_scalar('Loss/mel_loss', m_l, current_step)
-                    train_logger.add_scalar('Loss/mel_postnet_loss', m_p_l, current_step)
-                    train_logger.add_scalar('Loss/duration_loss', d_l, current_step)
-                    train_logger.add_scalar('Loss/F0_loss', f_l, current_step)
-                    train_logger.add_scalar('Loss/energy_loss', e_l, current_step)
-                
-                if current_step % hp.save_step == 0:
-                    torch.save({'model': model.state_dict(), 'optimizer': optimizer.state_dict(
-                    )}, os.path.join(checkpoint_path, 'checkpoint_{}.pth.tar'.format(current_step)))
-                    print("save model at step {} ...".format(current_step))
+    args = parser.parse_args()
 
-                if current_step % hp.synth_step == 0:
-                    length = mel_len[0].item()
-                    mel_target_torch = mel_target[0, :length].detach().unsqueeze(0).transpose(1, 2)
-                    mel_target = mel_target[0, :length].detach().cpu().transpose(0, 1)
-                    mel_torch = mel_output[0, :length].detach().unsqueeze(0).transpose(1, 2)
-                    mel = mel_output[0, :length].detach().cpu().transpose(0, 1)
-                    mel_postnet_torch = mel_postnet_output[0, :length].detach().unsqueeze(0).transpose(1, 2)
-                    mel_postnet = mel_postnet_output[0, :length].detach().cpu().transpose(0, 1)
-                    Audio.tools.inv_mel_spec(mel, os.path.join(synth_path, "step_{}_griffin_lim.wav".format(current_step)))
-                    Audio.tools.inv_mel_spec(mel_postnet, os.path.join(synth_path, "step_{}_postnet_griffin_lim.wav".format(current_step)))
-                    
-                    if hp.vocoder == 'melgan':
-                        utils.melgan_infer(mel_torch, melgan, os.path.join(hp.synth_path, 'step_{}_{}.wav'.format(current_step, hp.vocoder)))
-                        utils.melgan_infer(mel_postnet_torch, melgan, os.path.join(hp.synth_path, 'step_{}_postnet_{}.wav'.format(current_step, hp.vocoder)))
-                        utils.melgan_infer(mel_target_torch, melgan, os.path.join(hp.synth_path, 'step_{}_ground-truth_{}.wav'.format(current_step, hp.vocoder)))
-                    elif hp.vocoder == 'waveglow':
-                        utils.waveglow_infer(mel_torch, waveglow, os.path.join(hp.synth_path, 'step_{}_{}.wav'.format(current_step, hp.vocoder)))
-                        utils.waveglow_infer(mel_postnet_torch, waveglow, os.path.join(hp.synth_path, 'step_{}_postnet_{}.wav'.format(current_step, hp.vocoder)))
-                        utils.waveglow_infer(mel_target_torch, waveglow, os.path.join(hp.synth_path, 'step_{}_ground-truth_{}.wav'.format(current_step, hp.vocoder)))
-                    
-                    f0 = f0[0, :length].detach().cpu().numpy()
-                    energy = energy[0, :length].detach().cpu().numpy()
-                    f0_output = f0_output[0, :length].detach().cpu().numpy()
-                    energy_output = energy_output[0, :length].detach().cpu().numpy()
-                    
-                    utils.plot_data([(mel_postnet.numpy(), f0_output, energy_output), (mel_target.numpy(), f0, energy)], 
-                        ['Synthetized Spectrogram', 'Ground-Truth Spectrogram'], filename=os.path.join(synth_path, 'step_{}.png'.format(current_step)))
-                
-                if current_step % hp.eval_step == 0:
-                    model.eval()
-                    with torch.no_grad():
-                        d_l, f_l, e_l, m_l, m_p_l = evaluate(model, current_step)
-                        t_l = d_l + f_l + e_l + m_l + m_p_l
-                        
-                        val_logger.add_scalar('Loss/total_loss', t_l, current_step)
-                        val_logger.add_scalar('Loss/mel_loss', m_l, current_step)
-                        val_logger.add_scalar('Loss/mel_postnet_loss', m_p_l, current_step)
-                        val_logger.add_scalar('Loss/duration_loss', d_l, current_step)
-                        val_logger.add_scalar('Loss/F0_loss', f_l, current_step)
-                        val_logger.add_scalar('Loss/energy_loss', e_l, current_step)
+    log_interval = 100
+    eval_interval = 500
+    inner_log_interval = None
+    inner_log_interval_test = None
+    ways = 5
+    batch_size = 16
+    n_tasks_test = 1000  # usually 1000 tasks are used for testing
+    if args.dataset == 'omniglot':
+        reg_param = 2  # reg_param = 2
+        T, K = 16, 5  # T, K = 16, 5
+    elif args.dataset == 'miniimagenet':
+        reg_param = 0.5  # reg_param = 0.5
+        T, K = 10, 5  # T, K = 10, 5
+    else:
+        raise NotImplementedError(args.dataset, " not implemented!")
 
-                    model.train()
+    T_test = T
+    inner_lr = .1
 
-                end_time = time.perf_counter()
-                Time = np.append(Time, end_time - start_time)
-                if len(Time) == hp.clear_Time:
-                    temp_value = np.mean(Time)
-                    Time = np.delete(
-                        Time, [i for i in range(len(Time))], axis=None)
-                    Time = np.append(Time, temp_value)
+    loc = locals()
+    del loc['parser']
+    del loc['args']
+
+    print(args, '\n', loc, '\n')
+
+    cuda = not args.no_cuda and torch.cuda.is_available()
+    device = torch.device("cuda" if cuda else "cpu")
+    kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
+
+    # the following are for reproducibility on GPU, see https://pytorch.org/docs/master/notes/randomness.html
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
+
+    torch.random.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    if args.dataset == 'omniglot':
+        dataset = omniglot("data", ways=ways, shots=1, test_shots=15, meta_train=True, download=True)
+        test_dataset = omniglot("data", ways=ways, shots=1, test_shots=15, meta_test=True, download=True)
+
+        meta_model = get_cnn_omniglot(64, ways).to(device)
+    elif args.dataset == 'miniimagenet':
+        dataset = miniimagenet("data", ways=ways, shots=1, test_shots=15, meta_train=True, download=True)
+        test_dataset = miniimagenet("data", ways=ways, shots=1, test_shots=15, meta_test=True, download=True)
+
+        meta_model = get_cnn_miniimagenet(32, ways).to(device)
+    else:
+        raise NotImplementedError("DATASET NOT IMPLEMENTED! only omniglot and miniimagenet ")
+
+    dataloader = BatchMetaDataLoader(dataset, batch_size=batch_size, **kwargs)
+    test_dataloader = BatchMetaDataLoader(test_dataset, batch_size=batch_size, **kwargs)
+
+    outer_opt = torch.optim.Adam(params=meta_model.parameters())
+    # outer_opt = torch.optim.SGD(lr=0.1, params=meta_model.parameters())
+    inner_opt_class = hg.GradientDescent
+    inner_opt_kwargs = {'step_size': inner_lr}
+
+    def get_inner_opt(train_loss):
+        return inner_opt_class(train_loss, **inner_opt_kwargs)
+
+    for k, batch in enumerate(dataloader):
+        start_time = time.time()
+        meta_model.train()
+
+        tr_xs, tr_ys = batch["train"][0].to(device), batch["train"][1].to(device)
+        tst_xs, tst_ys = batch["test"][0].to(device), batch["test"][1].to(device)
+
+        outer_opt.zero_grad()
+
+        val_loss, val_acc = 0, 0
+        forward_time, backward_time = 0, 0
+        for t_idx, (tr_x, tr_y, tst_x, tst_y) in enumerate(zip(tr_xs, tr_ys, tst_xs, tst_ys)):
+            start_time_task = time.time()
+
+            # single task set up
+            task = Task(reg_param, meta_model,  (tr_x, tr_y, tst_x, tst_y), batch_size=tr_xs.shape[0])
+            inner_opt = get_inner_opt(task.train_loss_f)
+
+            # single task inner loop
+            params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
+            last_param = inner_loop(meta_model.parameters(), params, inner_opt, T, log_interval=inner_log_interval)[-1]
+            forward_time_task = time.time() - start_time_task
+
+            # single task hypergradient computation
+            if args.hg_mode == 'CG':
+                # This is the approximation used in the paper CG stands for conjugate gradient
+                cg_fp_map = hg.GradientDescent(loss_f=task.train_loss_f, step_size=1.)
+                hg.CG(last_param, list(meta_model.parameters()), K=K, fp_map=cg_fp_map, outer_loss=task.val_loss_f)
+            elif args.hg_mode == 'fixed_point':
+                hg.fixed_point(last_param, list(meta_model.parameters()), K=K, fp_map=inner_opt,
+                               outer_loss=task.val_loss_f)
+
+            backward_time_task = time.time() - start_time_task - forward_time_task
+
+            val_loss += task.val_loss
+            val_acc += task.val_acc/task.batch_size
+
+            forward_time += forward_time_task
+            backward_time += backward_time_task
+
+        outer_opt.step()
+        step_time = time.time() - start_time
+
+        if k % log_interval == 0:
+            print('MT k={} ({:.3f}s F: {:.3f}s, B: {:.3f}s) Val Loss: {:.2e}, Val Acc: {:.2f}.'
+                  .format(k, step_time, forward_time, backward_time, val_loss, 100. * val_acc))
+
+        if k % eval_interval == 0:
+            test_losses, test_accs = evaluate(n_tasks_test, test_dataloader, meta_model, T_test, get_inner_opt,
+                                          reg_param, log_interval=inner_log_interval_test)
+
+            print("Test loss {:.2e} +- {:.2e}: Test acc: {:.2f} +- {:.2e} (mean +- std over {} tasks)."
+                  .format(test_losses.mean(), test_losses.std(), 100. * test_accs.mean(),
+                          100.*test_accs.std(), len(test_losses)))
 
 
 def inner_loop(hparams, params, optim, n_steps, log_interval, create_graph=False):
-	params_history = [optim.get_opt_params(params)]
+    params_history = [optim.get_opt_params(params)]
 
-	for t in range(n_steps):
-		params_history.append(optim(hparams_history[-1],hparams, create_graph=create_graph))
-		
-		if log_interval and (t%log_interval==0 or t==n_steps-1):
-			print('t={}, Loss: {:.6f}'.format(t, optim.curr_loss.item()))
+    for t in range(n_steps):
+        params_history.append(optim(params_history[-1], hparams, create_graph=create_graph))
 
-	return params_history
+        if log_interval and (t % log_interval == 0 or t == n_steps-1):
+            print('t={}, Loss: {:.6f}'.format(t, optim.curr_loss.item()))
+
+    return params_history
 
 
-if __name__ == "__main__":
+def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param, log_interval=None):
+    meta_model.train()
+    device = next(meta_model.parameters()).device
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--restore_step', type=int, default=0)
+    val_losses, val_accs = [], []
+    for k, batch in enumerate(dataloader):
+        tr_xs, tr_ys = batch["train"][0].to(device), batch["train"][1].to(device)
+        tst_xs, tst_ys = batch["test"][0].to(device), batch["test"][1].to(device)
+
+        for t_idx, (tr_x, tr_y, tst_x, tst_y) in enumerate(zip(tr_xs, tr_ys, tst_xs, tst_ys)):
+            task = Task(reg_param, meta_model, (tr_x, tr_y, tst_x, tst_y))
+            inner_opt = get_inner_opt(task.train_loss_f)
+
+            params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
+            last_param = inner_loop(meta_model.parameters(), params, inner_opt, n_steps, log_interval=log_interval)[-1]
+
+            task.val_loss_f(last_param, meta_model.parameters())
+
+            val_losses.append(task.val_loss)
+            val_accs.append(task.val_acc)
+
+            if len(val_accs) >= n_tasks:
+                return np.array(val_losses), np.array(val_accs)
+
+
+def get_cnn_omniglot(hidden_size, n_classes):
+    def conv_layer(ic, oc, ):
+        return nn.Sequential(
+            nn.Conv2d(ic, oc, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+            nn.BatchNorm2d(oc, momentum=1., affine=True,
+                           track_running_stats=True # When this is true is called the "transductive setting"
+                           )
+        )
+
+    net =  nn.Sequential(
+        conv_layer(1, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        nn.Flatten(),
+        nn.Linear(hidden_size, n_classes)
+    )
+
+    initialize(net)
+    return net
+
+
+def get_cnn_miniimagenet(hidden_size, n_classes):
+    def conv_layer(ic, oc):
+        return nn.Sequential(
+            nn.Conv2d(ic, oc, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+            nn.BatchNorm2d(oc, momentum=1., affine=True,
+                           track_running_stats=False  # When this is true is called the "transductive setting"
+                           )
+        )
+
+    net = nn.Sequential(
+        conv_layer(3, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        nn.Flatten(),
+        nn.Linear(hidden_size*5*5, n_classes,)
+    )
+
+    initialize(net)
+    return net
+
+
+def initialize(net):
+    # initialize weights properly
+    for m in net.modules():
+        if isinstance(m, nn.Conv2d):
+            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            m.weight.data.normal_(0, math.sqrt(2. / n))
+            if m.bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.BatchNorm2d):
+            m.weight.data.fill_(1)
+            m.bias.data.zero_()
+        elif isinstance(m, nn.Linear):
+            #m.weight.data.normal_(0, 0.01)
+            #m.bias.data = torch.ones(m.bias.data.size())
+            m.weight.data.zero_()
+            m.bias.data.zero_()
+
+    return net
+
+
+
+if __name__ == '__main__':
+    main()import math
+import argparse
+import time
+
+import numpy as np
+import torch
+from torch import nn
+from torch.nn import functional as F
+
+from torchmeta.datasets.helpers import omniglot, miniimagenet
+from torchmeta.utils.data import BatchMetaDataLoader
+
+import higher
+
+import hypergrad as hg
+
+
+class Task:
+    """
+    Handles the train and valdation loss for a single task
+    """
+    def __init__(self, reg_param, meta_model, data, batch_size=None):
+        device = next(meta_model.parameters()).device
+
+        # stateless version of meta_model
+        self.fmodel = higher.monkeypatch(meta_model, device=device, copy_initial_weights=True)
+
+        self.n_params = len(list(meta_model.parameters()))
+        self.train_input, self.train_target, self.test_input, self.test_target = data
+        self.reg_param = reg_param
+        self.batch_size = 1 if not batch_size else batch_size
+        self.val_loss, self.val_acc = None, None
+
+    def bias_reg_f(self, bias, params):
+        # l2 biased regularization
+        return sum([((b - p) ** 2).sum() for b, p in zip(bias, params)])
+
+    def train_loss_f(self, params, hparams):
+        # biased regularized cross-entropy loss where the bias are the meta-parameters in hparams
+        out = self.fmodel(self.train_input, params=params)
+        return F.cross_entropy(out, self.train_target) + 0.5 * self.reg_param * self.bias_reg_f(hparams, params)
+
+    def val_loss_f(self, params, hparams):
+        # cross-entropy loss (uses only the task-specific weights in params
+        out = self.fmodel(self.test_input, params=params)
+        val_loss = F.cross_entropy(out, self.test_target)/self.batch_size
+        self.val_loss = val_loss.item()  # avoid memory leaks
+
+        pred = out.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+        self.val_acc = pred.eq(self.test_target.view_as(pred)).sum().item() / len(self.test_target)
+
+        return val_loss
+
+
+def main():
+
+    parser = argparse.ArgumentParser(description='Data HyperCleaner')
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--dataset', type=str, default='omniglot', metavar='N', help='omniglot or miniimagenet')
+    parser.add_argument('--hg-mode', type=str, default='CG', metavar='N',
+                        help='hypergradient approximation: CG or fixed_point')
+    parser.add_argument('--no-cuda', action='store_true', default=False,
+                        help='disables CUDA training')
+
     args = parser.parse_args()
 
-    main(args)
+    log_interval = 100
+    eval_interval = 500
+    inner_log_interval = None
+    inner_log_interval_test = None
+    ways = 5
+    batch_size = 16
+    n_tasks_test = 1000  # usually 1000 tasks are used for testing
+    if args.dataset == 'omniglot':
+        reg_param = 2  # reg_param = 2
+        T, K = 16, 5  # T, K = 16, 5
+    elif args.dataset == 'miniimagenet':
+        reg_param = 0.5  # reg_param = 0.5
+        T, K = 10, 5  # T, K = 10, 5
+    else:
+        raise NotImplementedError(args.dataset, " not implemented!")
+
+    T_test = T
+    inner_lr = .1
+
+    loc = locals()
+    del loc['parser']
+    del loc['args']
+
+    print(args, '\n', loc, '\n')
+
+    cuda = not args.no_cuda and torch.cuda.is_available()
+    device = torch.device("cuda" if cuda else "cpu")
+    kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
+
+    # the following are for reproducibility on GPU, see https://pytorch.org/docs/master/notes/randomness.html
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
+
+    torch.random.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    if args.dataset == 'omniglot':
+        dataset = omniglot("data", ways=ways, shots=1, test_shots=15, meta_train=True, download=True)
+        test_dataset = omniglot("data", ways=ways, shots=1, test_shots=15, meta_test=True, download=True)
+
+        meta_model = get_cnn_omniglot(64, ways).to(device)
+    elif args.dataset == 'miniimagenet':
+        dataset = miniimagenet("data", ways=ways, shots=1, test_shots=15, meta_train=True, download=True)
+        test_dataset = miniimagenet("data", ways=ways, shots=1, test_shots=15, meta_test=True, download=True)
+
+        meta_model = get_cnn_miniimagenet(32, ways).to(device)
+    else:
+        raise NotImplementedError("DATASET NOT IMPLEMENTED! only omniglot and miniimagenet ")
+
+    dataloader = BatchMetaDataLoader(dataset, batch_size=batch_size, **kwargs)
+    test_dataloader = BatchMetaDataLoader(test_dataset, batch_size=batch_size, **kwargs)
+
+    outer_opt = torch.optim.Adam(params=meta_model.parameters())
+    # outer_opt = torch.optim.SGD(lr=0.1, params=meta_model.parameters())
+    inner_opt_class = hg.GradientDescent
+    inner_opt_kwargs = {'step_size': inner_lr}
+
+    def get_inner_opt(train_loss):
+        return inner_opt_class(train_loss, **inner_opt_kwargs)
+
+    for k, batch in enumerate(dataloader):
+        start_time = time.time()
+        meta_model.train()
+
+        tr_xs, tr_ys = batch["train"][0].to(device), batch["train"][1].to(device)
+        tst_xs, tst_ys = batch["test"][0].to(device), batch["test"][1].to(device)
+
+        outer_opt.zero_grad()
+
+        val_loss, val_acc = 0, 0
+        forward_time, backward_time = 0, 0
+        for t_idx, (tr_x, tr_y, tst_x, tst_y) in enumerate(zip(tr_xs, tr_ys, tst_xs, tst_ys)):
+            start_time_task = time.time()
+
+            # single task set up
+            task = Task(reg_param, meta_model,  (tr_x, tr_y, tst_x, tst_y), batch_size=tr_xs.shape[0])
+            inner_opt = get_inner_opt(task.train_loss_f)
+
+            # single task inner loop
+            params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
+            last_param = inner_loop(meta_model.parameters(), params, inner_opt, T, log_interval=inner_log_interval)[-1]
+            forward_time_task = time.time() - start_time_task
+
+            # single task hypergradient computation
+            if args.hg_mode == 'CG':
+                # This is the approximation used in the paper CG stands for conjugate gradient
+                cg_fp_map = hg.GradientDescent(loss_f=task.train_loss_f, step_size=1.)
+                hg.CG(last_param, list(meta_model.parameters()), K=K, fp_map=cg_fp_map, outer_loss=task.val_loss_f)
+            elif args.hg_mode == 'fixed_point':
+                hg.fixed_point(last_param, list(meta_model.parameters()), K=K, fp_map=inner_opt,
+                               outer_loss=task.val_loss_f)
+
+            backward_time_task = time.time() - start_time_task - forward_time_task
+
+            val_loss += task.val_loss
+            val_acc += task.val_acc/task.batch_size
+
+            forward_time += forward_time_task
+            backward_time += backward_time_task
+
+        outer_opt.step()
+        step_time = time.time() - start_time
+
+        if k % log_interval == 0:
+            print('MT k={} ({:.3f}s F: {:.3f}s, B: {:.3f}s) Val Loss: {:.2e}, Val Acc: {:.2f}.'
+                  .format(k, step_time, forward_time, backward_time, val_loss, 100. * val_acc))
+
+        if k % eval_interval == 0:
+            test_losses, test_accs = evaluate(n_tasks_test, test_dataloader, meta_model, T_test, get_inner_opt,
+                                          reg_param, log_interval=inner_log_interval_test)
+
+            print("Test loss {:.2e} +- {:.2e}: Test acc: {:.2f} +- {:.2e} (mean +- std over {} tasks)."
+                  .format(test_losses.mean(), test_losses.std(), 100. * test_accs.mean(),
+                          100.*test_accs.std(), len(test_losses)))
+
+
+def inner_loop(hparams, params, optim, n_steps, log_interval, create_graph=False):
+    params_history = [optim.get_opt_params(params)]
+
+    for t in range(n_steps):
+        params_history.append(optim(params_history[-1], hparams, create_graph=create_graph))
+
+        if log_interval and (t % log_interval == 0 or t == n_steps-1):
+            print('t={}, Loss: {:.6f}'.format(t, optim.curr_loss.item()))
+
+    return params_history
+
+
+def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param, log_interval=None):
+    meta_model.train()
+    device = next(meta_model.parameters()).device
+
+    val_losses, val_accs = [], []
+    for k, batch in enumerate(dataloader):
+        tr_xs, tr_ys = batch["train"][0].to(device), batch["train"][1].to(device)
+        tst_xs, tst_ys = batch["test"][0].to(device), batch["test"][1].to(device)
+
+        for t_idx, (tr_x, tr_y, tst_x, tst_y) in enumerate(zip(tr_xs, tr_ys, tst_xs, tst_ys)):
+            task = Task(reg_param, meta_model, (tr_x, tr_y, tst_x, tst_y))
+            inner_opt = get_inner_opt(task.train_loss_f)
+
+            params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
+            last_param = inner_loop(meta_model.parameters(), params, inner_opt, n_steps, log_interval=log_interval)[-1]
+
+            task.val_loss_f(last_param, meta_model.parameters())
+
+            val_losses.append(task.val_loss)
+            val_accs.append(task.val_acc)
+
+            if len(val_accs) >= n_tasks:
+                return np.array(val_losses), np.array(val_accs)
+
+
+def get_cnn_omniglot(hidden_size, n_classes):
+    def conv_layer(ic, oc, ):
+        return nn.Sequential(
+            nn.Conv2d(ic, oc, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+            nn.BatchNorm2d(oc, momentum=1., affine=True,
+                           track_running_stats=True # When this is true is called the "transductive setting"
+                           )
+        )
+
+    net =  nn.Sequential(
+        conv_layer(1, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        nn.Flatten(),
+        nn.Linear(hidden_size, n_classes)
+    )
+
+    initialize(net)
+    return net
+
+
+def get_cnn_miniimagenet(hidden_size, n_classes):
+    def conv_layer(ic, oc):
+        return nn.Sequential(
+            nn.Conv2d(ic, oc, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+            nn.BatchNorm2d(oc, momentum=1., affine=True,
+                           track_running_stats=False  # When this is true is called the "transductive setting"
+                           )
+        )
+
+    net = nn.Sequential(
+        conv_layer(3, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        conv_layer(hidden_size, hidden_size),
+        nn.Flatten(),
+        nn.Linear(hidden_size*5*5, n_classes,)
+    )
+
+    initialize(net)
+    return net
+
+
+def initialize(net):
+    # initialize weights properly
+    for m in net.modules():
+        if isinstance(m, nn.Conv2d):
+            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            m.weight.data.normal_(0, math.sqrt(2. / n))
+            if m.bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.BatchNorm2d):
+            m.weight.data.fill_(1)
+            m.bias.data.zero_()
+        elif isinstance(m, nn.Linear):
+            #m.weight.data.normal_(0, 0.01)
+            #m.bias.data = torch.ones(m.bias.data.size())
+            m.weight.data.zero_()
+            m.bias.data.zero_()
+
+    return net
+
+
+
+if __name__ == '__main__':
+    main()
