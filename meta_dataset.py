@@ -14,8 +14,16 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class Dataset(Dataset):
-    def __init__(self, filelist=[f"train_{i}.txt" for i in range(1,hparams.num_subtasks+1)], sort=True):
-        self.basename, self.text = meta_process_meta(filelist, hparams.num_subtasks, hparams.num_subtask_data)
+    def __init__(self, mode = 'train', num_subtasks = hparams.num_subtasks, num_subtask_data =hparams.num_subtask_data, filelist=[f"train_{i}.txt" for i in range(1,hparams.num_subtasks+1)], sort=True):
+        self.num_subtasks = num_subtasks
+        if mode =='train':
+             self.filelist = [f"train_{i}.txt" for i in range(1,self.num_subtasks+1)]
+        elif mode =='val':
+             self.filelist = [f"val_{i}.txt" for i in range(1, self.num_subtasks+1)]
+        else:
+             raise ValueError("mode should be train or val") 
+        self.num_subtask_data = num_subtask_data
+        self.basename, self.text = meta_process_meta(filelist, self.num_subtasks, self.num_subtask_data)
         self.sort = sort
 
     def __len__(self):
@@ -111,17 +119,20 @@ class Dataset(Dataset):
 if __name__ == "__main__":
     # Test
     # Test
-    dataset = Dataset('val.txt')
+    
+    dataset = Dataset(mode = 'val', num_subtasks = 2, num_subtask_data = 3)
+    print("filelist:", dataset.filelist)
     training_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=dataset.collate_fn,
         drop_last=True, num_workers=0)
-    total_step = hparams.epochs * len(training_loader) * hparams.batch_size
+    total_step = hparams.epochs * len(training_loader)
 
     cnt = 0
-    for i, batchs in enumerate(training_loader):
-        for j, data_of_batch in enumerate(batchs):
+    for i, batch in enumerate(training_loader):
+        for j, sample in enumerate(batch):
             mel_target = torch.from_numpy(
-                data_of_batch["mel_target"]).float().to(device)
-            D = torch.from_numpy(data_of_batch["D"]).int().to(device)
+                sample["mel_target"]).float().to(device)
+            D = torch.from_numpy(sample["D"]).int().to(device)
             if mel_target.shape[1] == D.sum().item():
                 cnt += 1
+    print("cnt:",cnt)
 
