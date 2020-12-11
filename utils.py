@@ -64,6 +64,9 @@ def meta_process_meta(meta_file_list, num_subtasks, num_subtask_data):
         with open(filepath, "r", encoding="utf-8") as f:
             count  = 0
             for line in f.readlines():
+                print('filename:',filename)
+                print('task_idx:',task_idx)
+                print('count:',count)
                 n, t = line.strip('\n').split('|')
                 name[count][task_idx] = n
                 text[count][task_idx] = t

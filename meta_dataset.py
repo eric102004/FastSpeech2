@@ -23,7 +23,7 @@ class Dataset(Dataset):
         else:
              raise ValueError("mode should be train or val") 
         self.num_subtask_data = num_subtask_data
-        self.basename, self.text = meta_process_meta(filelist, self.num_subtasks, self.num_subtask_data)
+        self.basename, self.text = meta_process_meta(self.filelist, self.num_subtasks, self.num_subtask_data)
         self.sort = sort
 
     def __len__(self):
@@ -31,9 +31,9 @@ class Dataset(Dataset):
 
     def __getitem__(self, idx):
         basename_list = self.basename[idx]
-        phone_list = [np.array(text_to_sequence(self.text[idx][task], [])) for task in range(hparams.num_subtasks)]
+        phone_list = [np.array(text_to_sequence(self.text[idx][task], [])) for task in range(self.num_subtasks)]
         sample_list = []
-        for task in hparams.num_subtasks:
+        for task in range(self.num_subtasks):
             mel_path = os.path.join(
                 hparams.preprocessed_path, "mel", "{}-mel-{}.npy".format(hparams.dataset, basename_list[task]))
             mel_target = np.load(mel_path)
@@ -96,7 +96,7 @@ class Dataset(Dataset):
 
     def collate_fn(self, batch):
         output_list = []
-        for task in range(hparams.num_subtasks):
+        for task in range(self.num_subtasks):
             len_arr = np.array([d[task]["text"].shape[0] for d in batch])    #an array recording len of text in each sample
             index_arr = np.argsort(-len_arr)     #sort array in decreasing order of text length         #the index array of all datas in a subtask
             batchsize = len(batch)
@@ -120,7 +120,7 @@ if __name__ == "__main__":
     # Test
     # Test
     
-    dataset = Dataset(mode = 'val', num_subtasks = 2, num_subtask_data = 3)
+    dataset = Dataset(mode = 'val', num_subtasks = 1, num_subtask_data = 3)
     print("filelist:", dataset.filelist)
     training_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=dataset.collate_fn,
         drop_last=True, num_workers=0)

@@ -65,5 +65,6 @@ def main():
     write_metadata(train, val, out_dir)
     
 if __name__ == "__main__":
-    train, val =  read_metadata_all()
-    write_metadata(train, val)
+    #train, val =  read_metadata_all()
+    #write_metadata(train, val)
+    main()

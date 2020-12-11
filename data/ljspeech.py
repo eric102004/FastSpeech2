@@ -10,11 +10,11 @@ from text import _clean_text
 import hparams as hp
 
 def prepare_align(in_dir):
-<<<<<<< Updated upstream
+#<<<<<<< Updated upstream
     with open(os.path.join(in_dir, 'metadata_that.csv'), encoding='utf-8') as f:  #change
-=======
-    with open(os.path.join(in_dir, 'metadata_vowel.csv'), encoding='utf-8') as f:  #修改
->>>>>>> Stashed changes
+#=======
+    #with open(os.path.join(in_dir, 'metadata_vowel.csv'), encoding='utf-8') as f:  #修改
+#>>>>>>> Stashed changes
         for line in f:
             parts = line.strip().split('|')
             basename = parts[0]
@@ -31,11 +31,11 @@ def build_from_path(in_dir, out_dir):
     f0_max = energy_max = 0
     f0_min = energy_min = 1000000
     n_frames = 0
-<<<<<<< Updated upstream
+#<<<<<<< Updated upstream
     with open(os.path.join(in_dir, 'metadata_that.csv'), encoding='utf-8') as f:  #chane
-=======
-    with open(os.path.join(in_dir, 'metadata_vowel.csv'), encoding='utf-8') as f:   #修改寫新的metadata.csv
->>>>>>> Stashed changes
+#=======
+    #with open(os.path.join(in_dir, 'metadata_vowel.csv'), encoding='utf-8') as f:   #修改寫新的metadata.csv
+#>>>>>>> Stashed changes
         for line in f:
             parts = line.strip().split('|')
             basename = parts[0]
@@ -57,11 +57,11 @@ def build_from_path(in_dir, out_dir):
             print(done)
             '''
             
-<<<<<<< Updated upstream
+#<<<<<<< Updated upstream
             if basename[:2] in ['06']:
-=======
-            if basename[:5] in ['LJ001', 'LJ002', 'LJ003']:      #調整要收集的speaker(我們只要train存五個speaker,val先定為存1個speaker)
->>>>>>> Stashed changes
+#=======
+            #if basename[:5] in ['LJ001', 'LJ002', 'LJ003']:      #調整要收集的speaker(我們只要train存五個speaker,val先定為存1個speaker)
+#>>>>>>> Stashed changes
                 val.append(info)
             else:
                 train.append(info)
@@ -155,12 +155,12 @@ def process_utterance(in_dir, out_dir, basename):
 
     # Save spectrogram
     mel_filename = '{}-mel-{}.npy'.format(hp.dataset, basename)
-<<<<<<< Updated upstream
+#<<<<<<< Updated upstream
     np.save(os.path.join(out_dir, 'mel', mel_filename), mel_spectrogram.T, allow_pickle=False)
 
     return '|'.join([basename, text]), max(f0), min([f for f in f0 if f>0]), max(energy), min(energy), mel_spectrogram.shape[1]              #change: f0 can be zero
-=======
-    np.save(os.path.join(out_dir, 'mel', mel_filename), mel_spectrogram.T, allow_pickle=False)       #更改儲存路徑
+#=======
+    #np.save(os.path.join(out_dir, 'mel', mel_filename), mel_spectrogram.T, allow_pickle=False)       #更改儲存路徑
  
-    return '|'.join([basename, text]), max(f0), min([f for f in f0 if f != 0]), max(energy), min(energy), mel_spectrogram.shape[1]
->>>>>>> Stashed changes
+    #return '|'.join([basename, text]), max(f0), min([f for f in f0 if f != 0]), max(energy), min(energy), mel_spectrogram.shape[1]
+#>>>>>>> Stashed changes
