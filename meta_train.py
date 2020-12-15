@@ -40,7 +40,7 @@ class Task:
         self.fmodel = higher.monkeypatch(meta_model, device=device, copy_initial_weights=True)
 
         self.n_params = len(list(meta_model.parameters()))
-        self.train_input, self.train_target, self.test_input, self.test_target = data
+        self.sample_tr, self.sample_te = data
         self.reg_param = reg_param
         self.batch_size = 1 if not batch_size else batch_size
         self.val_loss, self.val_acc = None, None
@@ -129,17 +129,20 @@ def main(args):
     test_dataloader = BatchMetaDataLoader(test_dataset, batch_size=batch_size, **kwargs)
     '''
     #dataset and dataloader
+    print("setting up dataset and dataloader...")
     print("meta-training data file list:", hparams.meta_training_filelist)
-    print("meta-testing data file list:", hparams.meta_testing)
-    dataset = Dataset()
+    dataset = Dataset(mode='trian',num_subtasks=5,num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
+    dataloader = DataLoader(dataset, batch_size = hp.batch_size, shuffle=Treu, collate_fn=dataset.collate_fn, drop_last= Treu, num_workers=0)
     
     #define model
+    print("defining model...")
     meta_model = FastSpeech2().to(device)
     print("model has been defined")
     num_param = utils.get_param_num(model)
     print("num of FastSpeech2 Parameters", num_param)
 
     #optimizer and loss
+    print("setting up optimizer and loss")
     outer_opt = torch.optim.Adam(params=meta_model.parameters(), betas = hp.betas, eps=hp.eps, wreight_decay = hp.weight_decay)
     scheduled_optim = ScheduledOptim(outer_opt, hp.decoder_hidden, hp.n_warm_up_step, args.retore_step)
     Loss = FastSpeech2Loss().to(device)
@@ -150,22 +153,28 @@ def main(args):
     def get_inner_opt(train_loss):
         return inner_opt_class(train_loss, **inner_opt_kwargs)
 
-    for k, batch in enumerate(dataloader):
+    #start training
+    print("start training")
+    for k, (batch_tr, batch_te) in enumerate(dataloader):
         start_time = time.time()
         meta_model.train()
 
-        tr_xs, tr_ys = batch["train"][0].to(device), batch["train"][1].to(device)
-        tst_xs, tst_ys = batch["test"][0].to(device), batch["test"][1].to(device)
+        #tr_xs, tr_ys = batch["train"][0].to(device), batch["train"][1].to(device)
+        #tst_xs, tst_ys = batch["test"][0].to(device), batch["test"][1].to(device)
 
         outer_opt.zero_grad()
 
         val_loss, val_acc = 0, 0
         forward_time, backward_time = 0, 0
-        for t_idx, (tr_x, tr_y, tst_x, tst_y) in enumerate(zip(tr_xs, tr_ys, tst_xs, tst_ys)):
+
+        #start training in each subtask
+        assert len(batch_tr)==len(batch_te)
+        #for t_idx, (tr_x, tr_y, tst_x, tst_y) in enumerate(zip(tr_xs, tr_ys, tst_xs, tst_ys)):
+        for t_idx in range(len(batch_tr)):
             start_time_task = time.time()
 
             # single task set up
-            task = Task(reg_param, meta_model,  (tr_x, tr_y, tst_x, tst_y), batch_size=tr_xs.shape[0])
+            task = Task(reg_param, meta_model, (batch_tr[t_idx], batch_te[t_idx]), batch_size=len(batch_tr[t_idx]['text']))
             inner_opt = get_inner_opt(task.train_loss_f)
 
             # single task inner loop
