@@ -23,12 +23,12 @@ class Dataset(Dataset):
         else:
              raise ValueError("mode should be train or val") 
         self.num_subtask_training_data = num_subtask_training_data
-        sefl.num_subtask_testing_data = num_subtask_testing_data
+        self.num_subtask_testing_data = num_subtask_testing_data
         self.basename_tr, self.text_tr, self.basename_te, self.text_te = meta_process_meta(self.filelist, self.num_subtasks, self.num_subtask_training_data, self.num_subtask_testing_data)
         self.sort = sort
 
     def __len__(self):
-        return len(self.text)
+        return len(self.text_tr)
 
     def __getitem__(self, idx):
         basename_list_tr = self.basename_tr[idx]
@@ -150,13 +150,15 @@ class Dataset(Dataset):
                 else:
                     cut_list.append(np.arange(i*real_batchsize, (i+1)*real_batchsize))
             '''
-            output = self.reprocess(batch, index_arr, task)      #output is a sample for a subtask
+            #output = self.reprocess(batch, index_arr, task)      #output is a sample for a subtask
+            output = self.reprocess([b for b,_ in batch], index_arr, task)
             output_list_tr.append(output)
 
             #build output_list_te
             len_arr = np.array([d[task]["text"].shape[0] for _,d in batch])
             index_arr = np.argsort(-len_arr)
-            output = self.reprocess(batch, index_arr, task)
+            #output = self.reprocess(batch, index_arr, task)
+            output = self.reprocess([b for _,b in batch], index_arr, task)
             output_list_te.append(output)
 
         return output_list_tr, output_list_te
@@ -172,10 +174,10 @@ if __name__ == "__main__":
     total_step = hparams.epochs * len(training_loader)
 
     cnt = 0
-    for i, batch_tr, batch_te in enumerate(training_loader):       #次數=num_subtask_data / batch_size
+    for i, (batch_tr, batch_te) in enumerate(training_loader):       #次數=num_subtask_data / batch_size
         print('len(batch_tr):',len(batch_tr))
         print('len(batch_te):',len(batch_te))
-        for j, sample in enumerate(batch_tr):            #次數
+        for j, sample in enumerate(batch_te):            #次數
             #print("i:",i)
             #print('j:',j)
             #print(sample)

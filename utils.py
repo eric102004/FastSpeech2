@@ -75,8 +75,8 @@ def meta_process_meta(meta_file_list, num_subtasks, num_subtask_training_data, n
                     text_tr[count][task_idx] = t
                     count+=1
                 elif count<num_subtask_training_data + num_subtask_testing_data:
-                    name_te[count-num_subtasks_training_data][task_idx] = n
-                    text_te[count-num_subtasks_training_data][task_idx] = t
+                    name_te[count-num_subtask_training_data][task_idx] = n
+                    text_te[count-num_subtask_training_data][task_idx] = t
                     count+=1
                 else:
                     break
