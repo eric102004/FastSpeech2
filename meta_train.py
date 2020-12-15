@@ -129,7 +129,9 @@ def main(args):
     test_dataloader = BatchMetaDataLoader(test_dataset, batch_size=batch_size, **kwargs)
     '''
     #dataset and dataloader
-    
+    print("meta-training data file list:", hparams.meta_training_filelist)
+    print("meta-testing data file list:", hparams.meta_testing)
+    dataset = Dataset()
     
     #define model
     meta_model = FastSpeech2().to(device)

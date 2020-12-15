@@ -55,10 +55,12 @@ def process_meta(meta_path):
             text.append(t)
         return name, text
 
-def meta_process_meta(meta_file_list, num_subtasks, num_subtask_data):
+def meta_process_meta(meta_file_list, num_subtasks, num_subtask_training_data, num_subtask_testing_data):
     #initializing
-    text = [[None for j in range(num_subtasks)] for i in range(num_subtask_data)]
-    name = [[None for j in range(num_subtasks)] for i in range(num_subtask_data)]
+    text_tr = [[None for j in range(num_subtasks)] for i in range(num_subtask_training_data)]
+    name_tr = [[None for j in range(num_subtasks)] for i in range(num_subtask_training_data)]
+    text_te = [[None for j in range(num_subtasks)] for i in range(num_subtask_testing_data)]
+    name_te = [[None for j in range(num_subtasks)] for i in range(num_subtask_testing_data)]
     for task_idx, filename in enumerate(meta_file_list):
         filepath = os.path.join(hp.preprocessed_path, filename)
         with open(filepath, "r", encoding="utf-8") as f:
@@ -68,16 +70,23 @@ def meta_process_meta(meta_file_list, num_subtasks, num_subtask_data):
                 #print('task_idx:',task_idx)
                 #print('count:',count)
                 n, t = line.strip('\n').split('|')
-                name[count][task_idx] = n
-                text[count][task_idx] = t
-                count+=1
-                if count>=num_subtask_data:
+                if count<num_subtask_training_data:
+                    name_tr[count][task_idx] = n
+                    text_tr[count][task_idx] = t
+                    count+=1
+                elif count<num_subtask_training_data + num_subtask_testing_data:
+                    name_te[count-num_subtasks_training_data][task_idx] = n
+                    text_te[count-num_subtasks_training_data][task_idx] = t
+                    count+=1
+                else:
                     break
     #check that there's no None after loading filename
-    for i in range(num_subtask_data):
-        assert not (None in text[i] or None in name[i]) 
+    for i in range(num_subtask_training_data):
+        assert not (None in text_tr[i] or None in name_tr[i]) 
+    for i in range(num_subtask_testing_data):
+        assert not (None in text_te[i] or None in name_te[i])
     
-    return name, text
+    return name_tr, text_tr, name_te, text_te
 		
 	
 

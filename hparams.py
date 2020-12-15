@@ -110,4 +110,5 @@ K = 5            # the steps taken in computing hypergradient
 n_tasks_test = 1000  # the num of tasks taken in testing phase
 inner_lr = .1     # learning rate of inner loop
 num_subtasks = 5           # the num of subtasks in meta learning (num o speakers),used to initializedataset
-num_subtask_data = 60      # the hum of data in each subtasks, used to initialize the dataset
+num_subtask_training_data = 60      # the num of training data in each subtasks, used to initialize the dataset
+num_subtask_testing_data = 5        # the num of testing data in each subasks
