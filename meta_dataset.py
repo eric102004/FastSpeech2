@@ -75,12 +75,21 @@ class Dataset(Dataset):
         for mel in mel_targets:
             length_mel = np.append(length_mel, mel.shape[0])
         
+        '''
         texts = pad_1D(texts)
         Ds = pad_1D(Ds)
         mel_targets = pad_2D(mel_targets)
         f0s = pad_1D(f0s)
         energies = pad_1D(energies)
         log_Ds = np.log(Ds + hparams.log_offset)
+        '''
+        #creating log_Ds
+        log_Ds = [np.log(D + hparams.log_offset) for D in Ds]
+        #print("log_Ds.shape:",len(log_Ds),log_Ds[0].shape)
+        #print("Ds.shape",len(Ds),Ds[0].shape)
+        #mel_targets_pad = pad_2D(mel_targets)
+        #print("mel_targets.shape:",len(mel_targets),len(mel_targets[0]), len(mel_targets[0][0]))
+        #print("mel_tagets.shape(after padding):",mel_targets_pad.shape)
 
         out = {"id": ids,
                "text": texts,
@@ -112,7 +121,8 @@ class Dataset(Dataset):
             '''
             output = self.reprocess(batch, index_arr, task)      #output is a sample for a subtask
 
-        output_list.append(output)
+            output_list.append(output)
+        #print("len(output_list)", len(output_list))
 
         return output_list
 
@@ -120,19 +130,39 @@ if __name__ == "__main__":
     # Test
     # Test
     
-    dataset = Dataset(mode = 'val', num_subtasks = 1, num_subtask_data = 3)
+    dataset = Dataset(mode = 'train', num_subtasks = 5, num_subtask_data = 3)
     print("filelist:", dataset.filelist)
-    training_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=dataset.collate_fn,
+    training_loader = DataLoader(dataset, batch_size=3, shuffle=False, collate_fn=dataset.collate_fn,
         drop_last=True, num_workers=0)
     total_step = hparams.epochs * len(training_loader)
 
     cnt = 0
-    for i, batch in enumerate(training_loader):
-        for j, sample in enumerate(batch):
-            mel_target = torch.from_numpy(
-                sample["mel_target"]).float().to(device)
-            D = torch.from_numpy(sample["D"]).int().to(device)
-            if mel_target.shape[1] == D.sum().item():
-                cnt += 1
+    for i, batch in enumerate(training_loader):       #次數=num_subtask_data / batch_size
+        #print('len(batch):',len(batch))
+        for j, sample in enumerate(batch):            #次數
+            #print("i:",i)
+            #print('j:',j)
+            #print(sample)
+            #print("mel_target.shape:",sample["mel_target"][0].shape)
+            #print("D.shape:",sample["D"][0])
+            for k in range(3):                      #次數:batch_size
+                mel_target = torch.tensor(                         #change from from_numpy to tensor 
+                    sample["mel_target"][k]).float().to(device)
+                D = torch.tensor(sample["D"][k]).int().to(device)  #change from from_numpy to tensor
+                text = torch.tensor(sample["text"][k]).int().to(device)
+                log_D = torch.tensor(sample["log_D"][k]).float().to(device)
+                f0 = torch.tensor(sample["f0"][k]).float().to(device)
+                energy = torch.tensor(sample["energy"][k]).float().to(device)
+                print("mel_target_len:", mel_target.shape[0])
+                print("sum of split len:",D.sum().item())
+                print("len of text:",text.shape[0])
+                print("len of log_D:", log_D.shape[0])
+                print("len of f0", f0.shape[0])
+                print("len fo energy:", energy.shape[0])
+                if mel_target.shape[0] == D.sum().item():
+                    #print("length met")
+                    cnt += 1
+                else:
+                    print("length not met")
     print("cnt:",cnt)
 

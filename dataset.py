@@ -105,16 +105,21 @@ class Dataset(Dataset):
 if __name__ == "__main__":
     # Test
     dataset = Dataset('val.txt')
-    training_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=dataset.collate_fn,
+    training_loader = DataLoader(dataset, batch_size=2, shuffle=False, collate_fn=dataset.collate_fn,
         drop_last=True, num_workers=0)
     total_step = hparams.epochs * len(training_loader) * hparams.batch_size
 
     cnt = 0
     for i, batchs in enumerate(training_loader):
+        print("len(batchs):",len(batchs))
         for j, data_of_batch in enumerate(batchs):
+            print("i:",i)
+            print("j:",j)
             mel_target = torch.from_numpy(
                 data_of_batch["mel_target"]).float().to(device)
             D = torch.from_numpy(data_of_batch["D"]).int().to(device)
+            print("mel_shape:",mel_target.shape)
+            print("D.sum().item():",D.sum().item())
             if mel_target.shape[1] == D.sum().item():
                 cnt += 1
 
