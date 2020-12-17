@@ -105,16 +105,17 @@ class Dataset(Dataset):
         for mel in mel_targets:
             length_mel = np.append(length_mel, mel.shape[0])
         
-        '''
+        
         texts = pad_1D(texts)
         Ds = pad_1D(Ds)
         mel_targets = pad_2D(mel_targets)
         f0s = pad_1D(f0s)
         energies = pad_1D(energies)
         log_Ds = np.log(Ds + hparams.log_offset)
-        '''
+        
         #creating log_Ds
-        log_Ds = [np.log(D + hparams.log_offset) for D in Ds]
+        #log_Ds = [np.log(D + hparams.log_offset) for D in Ds]
+
         #print("log_Ds.shape:",len(log_Ds),log_Ds[0].shape)
         #print("Ds.shape",len(Ds),Ds[0].shape)
         #mel_targets_pad = pad_2D(mel_targets)
@@ -184,13 +185,13 @@ if __name__ == "__main__":
             #print("mel_target.shape:",sample["mel_target"][0].shape)
             #print("D.shape:",sample["D"][0])
             for k in range(3):                      #次數:batch_size
-                mel_target = torch.tensor(                         #change from from_numpy to tensor 
+                mel_target = torch.from_numpy(                    #change from from_numpy to tensor 
                     sample["mel_target"][k]).float().to(device)
-                D = torch.tensor(sample["D"][k]).int().to(device)  #change from from_numpy to tensor
-                text = torch.tensor(sample["text"][k]).int().to(device)
-                log_D = torch.tensor(sample["log_D"][k]).float().to(device)
-                f0 = torch.tensor(sample["f0"][k]).float().to(device)
-                energy = torch.tensor(sample["energy"][k]).float().to(device)
+                D = torch.from_numpy(sample["D"][k]).int().to(device)  #change from from_numpy to tensor
+                text = torch.from_numpy(sample["text"][k]).int().to(device)
+                log_D = torch.from_numpy(sample["log_D"][k]).float().to(device)
+                f0 = torch.from_numpy(sample["f0"][k]).float().to(device)
+                energy = torch.from_numpy(sample["energy"][k]).float().to(device)
                 print("mel_target_len:", mel_target.shape[0])
                 print("sum of split len:",D.sum().item())
                 print("len of text:",text.shape[0])
