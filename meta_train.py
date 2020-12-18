@@ -45,6 +45,7 @@ class Task:
         self.reg_param = reg_param
         self.batch_size = 1 if not batch_size else batch_size
         self.val_loss, self.val_acc = None, None
+        self.loss_fm = FastSpeech2Loss
 
     def bias_reg_f(self, bias, params):
         # l2 biased regularization
@@ -53,26 +54,23 @@ class Task:
     def train_loss_f(self, params, hparams):
         # biased regularized cross-entropy loss where the bias are the meta-parameters in hparams
         total_loss = None
-        for d in range(self.batch_size):
-            text = torch.from_numpy(self.sample_tr['text'][d]).long().to(self.device)
-            mel_target = torch.from_numpy(self.sample_tr['mel_target'][d]).float().to(self.device)
-            D = torch.from_numpy(self.sample_tr['D'][d]).long().to(self.device)
-            log_D = torch.from_numpy(self.sample_tr['log_D'][d].float().to(self.device))
-            f0 = torch.from_numpy(self.sample_tr['f0'][d]).float().to(self.device)
-            energy = torch.from_numpy(self.sample_tr['energy'][d]).float().to(self.device)
-            src_len = torch.from_numpy(self.sample_tr['src_len'][d].long().to(self.device))
-            mel_len = torch.from_numpy(self.sample_tr['mel_len'][d]).long().to(self.device)
-            max_src_len = np.max(self.sample_tr['src_len'][d]).astype(np.int32)
-            max_mel_len = np.max(self.sample_tr['mel_len'][d]).astype(np.int32)
-            #forward
-            mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel((text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len), params=params)
-            #cal loss
-            mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = Loss(log_duration_output, log_D, f0_output f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
-            if not total_loss:
-                total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
-            else: 
-                total_loss += mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
-            total_loss += 0.5 * self.reg_param * self.bias_reg_f(hparams, params)
+
+        text = torch.from_numpy(self.sample_tr['text']).long().to(self.device)
+        mel_target = torch.from_numpy(self.sample_tr['mel_target']).float().to(self.device)
+        D = torch.from_numpy(self.sample_tr['D']).long().to(self.device)
+        log_D = torch.from_numpy(self.sample_tr['log_D'].float().to(self.device))
+        f0 = torch.from_numpy(self.sample_tr['f0']).float().to(self.device)
+        energy = torch.from_numpy(self.sample_tr['energy']).float().to(self.device)
+        src_len = torch.from_numpy(self.sample_tr['src_len']).long().to(self.device)
+        mel_len = torch.from_numpy(self.sample_tr['mel_len']).long().to(self.device)
+        max_src_len = np.max(self.sample_tr['src_len']).astype(np.int32)
+        max_mel_len = np.max(self.sample_tr['mel_len']).astype(np.int32)
+        #forward
+        mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel((text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len), params=params)
+        #cal loss
+        mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
+        total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
+        total_loss += 0.5 * self.reg_param * self.bias_reg_f(hparams, params)
         return total_loss
         #out = self.fmodel(self.train_input, params=params)
         #return F.cross_entropy(out, self.train_target) + 0.5 * self.reg_param * self.bias_reg_f(hparams, params)
@@ -81,26 +79,21 @@ class Task:
         # cross-entropy loss (uses only the task-specific weights in params
         #out = self.fmodel(self.test_input, params=params)
         #val_loss = F.cross_entropy(out, self.test_target)/self.batch_size
-        val_loss = None
-        for d in range(self.batch_size):
-            text = torch.from_numpy(self.sample_te['text'][d]).long().to(self.device)
-            mel_target = torch.from_numpy(self.sample_te['mel_target'][d]).float().to(self.device)
-            D = torch.from_numpy(self.sample_te['D'][d]).long().to(self.device)
-            log_D = torch.from_numpy(self.sample_te['log_D'][d].float().to(self.device))
-            f0 = torch.from_numpy(self.sample_te['f0'][d]).float().to(self.device)
-            energy = torch.from_numpy(self.sample_te['energy'][d]).float().to(self.device)
-            src_len = torch.from_numpy(self.sample_te['src_len'][d].long().to(self.device))
-            mel_len = torch.from_numpy(self.sample_te['mel_len'][d]).long().to(self.device)
-            max_src_len = np.max(self.sample_te['src_len'][d]).astype(np.int32)
-            max_mel_len = np.max(self.sample_te['mel_len'][d]).astype(np.int32)
-            #forward
-            mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel((text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len), params = params)
-            #cal loss
-            mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = Loss(log_duration_output, log_D, f0_output f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
-            if not val_loss:
-                val_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
-            else: 
-                val_loss += mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
+        text = torch.from_numpy(self.sample_te['text']).long().to(self.device)
+        mel_target = torch.from_numpy(self.sample_te['mel_target']).float().to(self.device)
+        D = torch.from_numpy(self.sample_te['D']).long().to(self.device)
+        log_D = torch.from_numpy(self.sample_te['log_D']).float().to(self.device)
+        f0 = torch.from_numpy(self.sample_te['f0']).float().to(self.device)
+        energy = torch.from_numpy(self.sample_te['energy']).float().to(self.device)
+        src_len = torch.from_numpy(self.sample_te['src_len']).long().to(self.device)
+        mel_len = torch.from_numpy(self.sample_te['mel_len']).long().to(self.device)
+        max_src_len = np.max(self.sample_te['src_len']).astype(np.int32)
+        max_mel_len = np.max(self.sample_te['mel_len']).astype(np.int32)
+        #forward
+        mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel((text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len), params = params)
+        #cal loss
+        mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
+        val_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
         self.val_loss = val_loss.item()  # avoid memory leaks
 
         #pred = out.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
@@ -217,7 +210,7 @@ def main(args):
             start_time_task = time.time()
 
             # single task set up
-            task = Task(reg_param, meta_model, (batch_tr[t_idx], batch_te[t_idx]), batch_size=len(batch_tr[t_idx]['text']))
+            task = Task(reg_param, meta_model, (batch_tr[t_idx], batch_te[t_idx]), batch_size=batch_tr[t_idx]['text'].shape[0])
             inner_opt = get_inner_opt(task.train_loss_f)
 
             # single task inner loop
