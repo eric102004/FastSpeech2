@@ -10,15 +10,15 @@ from torch.nn import functional as F
 #from torchmeta.datasets.helpers import omniglot, miniimagenet
 #from torchmeta.utils.data import BatchMetaDataLoader
 from torch.utils.data import DataLoader
-from orch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 import numpy as np
 import os
 
 from fastspeech2 import FastSpeech2
 from loss import FastSpeech2Loss
-from dataset import Dataset
-from optimizer import ScheduleOptim
+from meta_dataset import Dataset
+from optimizer import ScheduledOptim
 from evaluate import evaluate
 import hparams as hp
 import utils
@@ -68,7 +68,7 @@ class Task:
         #forward
         mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel((text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len), params=params)
         #cal loss
-        mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
+        mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
         total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
         total_loss += 0.5 * self.reg_param * self.bias_reg_f(hparams, params)
         return total_loss
@@ -92,7 +92,7 @@ class Task:
         #forward
         mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel((text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len), params = params)
         #cal loss
-        mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
+        mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
         val_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
         self.val_loss = val_loss.item()  # avoid memory leaks
 
@@ -134,7 +134,8 @@ def main(args):
     del loc['args']
     '''
 
-    print(args, '\n', loc, '\n')
+    #print(args, '\n', loc, '\n')
+    print(args, '\n')
     
     #get device
     cuda = not args.no_cuda and torch.cuda.is_available()
@@ -166,22 +167,24 @@ def main(args):
     '''
     #dataset and dataloader
     print("setting up dataset and dataloader...")
-    print("meta-training data file list:", hparams.meta_training_filelist)
-    dataset = Dataset(mode='trian',num_subtasks=hp.num_subtasks,num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
+    print("meta_train")
+    dataset = Dataset(filelist=hp.filelist_tr, num_subtasks=hp.num_subtasks,num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
     dataloader = DataLoader(dataset, batch_size = hp.batch_size, shuffle=True, collate_fn=dataset.collate_fn, drop_last= True, num_workers=0)
-    test_dataset = Dataset(mode='val', num_subtasks=hp.num_subtasks, num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
-    test_dataloader = DataLoader(test_dataset, batch_size=hp.batch_size, shuffle=True, collate_fn=test_dataset.collate_fn, drop_lasst= True, num_workers=0)
+    test_dataset = Dataset(filelist=hp.filelist_tr, num_subtasks=hp.num_subtasks, num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
+    test_dataloader = DataLoader(test_dataset, batch_size=hp.batch_size, shuffle=True, collate_fn=test_dataset.collate_fn, drop_last= True, num_workers=0)            #since only have tr data now, use training data 
+    print("meta-training data file list:", dataset.filelist)
+    print("meta-testing data file list:", test_dataset.filelist)
     
     #define model
     print("defining model...")
     meta_model = FastSpeech2().to(device)
     print("model has been defined")
-    num_param = utils.get_param_num(model)
+    num_param = utils.get_param_num(meta_model)
     print("num of FastSpeech2 Parameters", num_param)
 
     #optimizer and loss
     print("setting up optimizer and loss")
-    outer_opt = torch.optim.Adam(params=meta_model.parameters(), betas = hp.betas, eps=hp.eps, wreight_decay = hp.weight_decay)
+    outer_opt = torch.optim.Adam(params=meta_model.parameters(), betas = hp.betas, eps=hp.eps, weight_decay = hp.weight_decay)
     scheduled_optim = ScheduledOptim(outer_opt, hp.decoder_hidden, hp.n_warm_up_step, args.retore_step)
     Loss = FastSpeech2Loss().to(device)
     # outer_opt = torch.optim.SGD(lr=0.1, params=meta_model.parameters())

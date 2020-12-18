@@ -112,5 +112,5 @@ inner_lr = .1     # learning rate of inner loop
 num_subtasks = 5           # the num of subtasks in meta learning (num o speakers),used to initializedataset
 filelist_tr = ['train_1.txt', 'train_2.txt', 'train_3.txt', 'train_4.txt', 'train_5.txt']
 filelist_val = ['val_1.txt', 'val_2.txt', 'val_2.txt', 'val_4.txt', 'val_5.txt']
-num_subtask_training_data = 60      # the num of training data in each subtasks, used to initialize the dataset
+num_subtask_training_data = 5      # the num of training data in each subtasks, used to initialize the dataset
 num_subtask_testing_data = 5        # the num of testing data in each subasks

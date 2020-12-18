@@ -14,14 +14,17 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class Dataset(Dataset):
-    def __init__(self, mode = 'train', num_subtasks = hparams.num_subtasks, num_subtask_training_data = hparams.num_subtask_training_data, num_subtask_testing_data = hparams.num_subtask_testing_data, filelist=[f"train_{i}.txt" for i in range(1,hparams.num_subtasks+1)], sort=True):
+    def __init__(self, filelist=None ,mode = 'train', num_subtasks = hparams.num_subtasks, num_subtask_training_data = hparams.num_subtask_training_data, num_subtask_testing_data = hparams.num_subtask_testing_data, sort=True):
         self.num_subtasks = num_subtasks
-        if mode =='train':
-             self.filelist = [f"train_{i}.txt" for i in range(1,self.num_subtasks+1)]
-        elif mode =='val':
-             self.filelist = [f"val_{i}.txt" for i in range(1, self.num_subtasks+1)]
+        if filelist:
+            self.filelist = filelist
         else:
-             raise ValueError("mode should be train or val") 
+            if mode =='train':
+                self.filelist = [f"train_{i}.txt" for i in range(1,self.num_subtasks+1)]
+            elif mode =='val':
+                self.filelist = [f"val_{i}.txt" for i in range(1, self.num_subtasks+1)]
+            else:
+                raise ValueError("mode should be train or val") 
         self.num_subtask_training_data = num_subtask_training_data
         self.num_subtask_testing_data = num_subtask_testing_data
         self.basename_tr, self.text_tr, self.basename_te, self.text_te = meta_process_meta(self.filelist, self.num_subtasks, self.num_subtask_training_data, self.num_subtask_testing_data)
