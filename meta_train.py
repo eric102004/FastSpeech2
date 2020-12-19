@@ -185,7 +185,7 @@ def main(args):
     #optimizer and loss
     print("setting up optimizer and loss")
     outer_opt = torch.optim.Adam(params=meta_model.parameters(), betas = hp.betas, eps=hp.eps, weight_decay = hp.weight_decay)
-    scheduled_optim = ScheduledOptim(outer_opt, hp.decoder_hidden, hp.n_warm_up_step, args.retore_step)
+    scheduled_optim = ScheduledOptim(outer_opt, hp.decoder_hidden, hp.n_warm_up_step, args.restore_step)
     Loss = FastSpeech2Loss().to(device)
     # outer_opt = torch.optim.SGD(lr=0.1, params=meta_model.parameters())
     inner_opt_class = hg.GradientDescent
