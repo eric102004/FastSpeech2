@@ -44,8 +44,8 @@ class Task:
         self.sample_tr, self.sample_te = data
         self.reg_param = reg_param
         self.batch_size = 1 if not batch_size else batch_size
-        self.val_loss, self.val_acc = None, None
-        self.loss_fm = FastSpeech2Loss
+        self.val_loss = None
+        self.loss_fm = FastSpeech2Loss().to(self.device)
 
     def bias_reg_f(self, bias, params):
         # l2 biased regularization
@@ -70,6 +70,7 @@ class Task:
         #cal loss
         mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
         total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
+        total_loss = total_loss / self.batch_size
         total_loss += 0.5 * self.reg_param * self.bias_reg_f(hparams, params)
         return total_loss
         #out = self.fmodel(self.train_input, params=params)
@@ -94,6 +95,11 @@ class Task:
         #cal loss
         mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
         val_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
+        self.val_mel_loss = mel_loss.item()
+        self.val_mel_postnet_loss = mel_postnet_loss.item()
+        self.val_d_loss = d_loss.item()
+        self.val_f_loss = f_loss.item()
+        self.val_e_loss = f_loss.item()
         self.val_loss = val_loss.item()  # avoid memory leaks
 
         #pred = out.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
@@ -194,18 +200,66 @@ def main(args):
     def get_inner_opt(train_loss):
         return inner_opt_class(train_loss, **inner_opt_kwargs)
 
+    #load checkpoint is exists
+    chckpoint_path = os.path.join(hp.checkpoint_path)
+    try:
+        checkpoint = torch.load(os.path.join(
+            checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
+        meta_model.load_state_dict(checkpoint['model'])
+        outer_opt.load_state_dict(checkpoint['optimizer'])
+        print("\n---Model Restored at Step {}---\n".format(args.restore_step))
+    except:
+        print("\n---Start New Training---\n")
+        if not os.path.exists(checkpoint_path):
+            os.makedirs(checkpoint_path)
+
+    # Load vocoder
+    if hp.vocoder == 'melgan':
+        melgan = utils.get_melgan()
+        melgan.to(device)
+    elif hp.vocoder == 'waveglow':
+        waveglow = utils.get_waveglow()
+        waveglow.to(device)
+
+    # Init logger
+    log_path = hp.log_path
+    if not os.path.exists(log_path):
+        os.makedirs(log_path)
+        os.makedirs(os.path.join(log_path, 'train'))
+        os.makedirs(os.path.join(log_path, 'validation'))
+    train_logger = SummaryWriter(os.path.join(log_path, 'train'))
+    val_logger = SummaryWriter(os.path.join(log_path, 'validation'))
+
+    # Init synthesis directory
+    synth_path = hp.synth_path
+    if not os.path.exists(synth_path):
+        os.makedirs(synth_path)
+
+      
+    current_step = args.restore_step
+
     #start training
     print("start training")
-    for k, (batch_tr, batch_te) in enumerate(dataloader):
+    for epoch in range(hp.epochs):
+      print(f"###########  Epoch_{epoch+1}       ###########")
+      for k, (batch_tr, batch_te) in enumerate(dataloader):
         start_time = time.time()
         meta_model.train()
+
+        current_step += 1
 
         #tr_xs, tr_ys = batch["train"][0].to(device), batch["train"][1].to(device)
         #tst_xs, tst_ys = batch["test"][0].to(device), batch["test"][1].to(device)
 
         outer_opt.zero_grad()
+        scheduled_optim.zero_grad()
 
-        val_loss, val_acc = 0, 0
+        val_loss = 0
+        val_mel_loss = 0
+        val_mel_postnet_loss = 0
+        val_d_loss = 0
+        val_f_loss = 0
+        val_e_loss = 0
         forward_time, backward_time = 0, 0
 
         #start training in each subtask
@@ -230,29 +284,73 @@ def main(args):
                 hg.CG(last_param, list(meta_model.parameters()), K=K, fp_map=cg_fp_map, outer_loss=task.val_loss_f)
             elif args.hg_mode == 'fixed_point':
                 hg.fixed_point(last_param, list(meta_model.parameters()), K=K, fp_map=inner_opt,
-                               outer_loss=task.val_loss_f)
+                               outer_loss=task.val_loss_f)    #gradient will add to p.grad for p in model parameters
 
             backward_time_task = time.time() - start_time_task - forward_time_task
 
             val_loss += task.val_loss
-            val_acc += task.val_acc/task.batch_size
+            val_mel_postnet_loss += task.val_mel_postnet_loss
+            val_mel_loss += task.val_mel_loss
+            val_d_loss += task.val_d_loss
+            val_f_loss += task.val_f_loss
+            val_e_loss += task.val_e_loss
+            #val_acc += task.val_acc/task.batch_size
 
             forward_time += forward_time_task
             backward_time += backward_time_task
 
-        outer_opt.step()
+        #clipping gradient to avoid gradient explosion
+        nn.utils.clip_grad_norm_(meta_model.parameters(), hp.grad_clip_thresh)
+
+        #Update weights
+        scheduled_optim.step_and_update_lr()
+        scheduled_optim.zero_grad()
+
+        #outer_opt.step()
         step_time = time.time() - start_time
 
-        if k % log_interval == 0:
-            print('MT k={} ({:.3f}s F: {:.3f}s, B: {:.3f}s) Val Loss: {:.2e}, Val Acc: {:.2f}.'
-                  .format(k, step_time, forward_time, backward_time, val_loss, 100. * val_acc))
+        if current_step % hp.log_step ==0:
+            str1 = "Epoch [{}/{}], Step {}:".format(
+                epoch+1, hp.epochs, current_step)
+            str2 = 'MT k={} ({:.3f}s F: {:.3f}s, B: {:.3f}s)'
+                  .format(k, step_time, forward_time, backward_time))
+            str3 = 'Val total Loss : {:.2e} Mel Loss: {:.2e} Mel Postnet Loss: {:.2e} D Loss: {:.2e} F Loss: {:.2e} E Loss: {:.2e}'
+                  .format(val_loss, val_mel_loss, val_postnet_mel_loss, val_d_loss, val_f_loss, val_e_loss))
+            print('\n'+str1)
+            print(str2)
+            print(str3)
+      
+        #write std output to log file
+        with open(os.path.join(log_path, "log.txt"), "a") as f_log:
+            f_log.write(str1 + '\n')
+            f_log.write(str2 + '\n')
+            f_log.write(str3 + '\n')
+            f_log.write('\n')
 
-        if k % eval_interval == 0:
+        train_lgger.add_scalar('Loss/total_loss', val_loss, current_step)
+        train_lgger.add_scalar('Loss/mel_loss', val_mel_loss, current_step)
+        train_lgger.add_scalar('Loss/mel_postnet_loss', val_mel_postnet_loss, current_step)
+        train_lgger.add_scalar('Loss/duration_loss', val_d_loss, current_step)
+        train_lgger.add_scalar('Loss/F0_loss', val_f_loss, current_step)
+        train_lgger.add_scalar('Loss/energy_loss', val_e_loss, current_step)
+
+        if current_step % hp.save_step ==0:
+            torch.save({'model':meta_model.state_dict(), 'optimizer': optimizer.state_dict()}, op.path.join(checkpoint_path, 'checkpoint_{}.pth.tar'.format(surrent_step)))
+            print('save model at step {} ...'.format(current_step))
+
+        if current_step % hp.synth_step ==0:
+            # todo
+
+        if current_step % hp.eval_step == 0:         
+            print("evaluating....")
             test_losses = evaluate(n_tasks_test, test_dataloader, meta_model, T_test, get_inner_opt,
                                           reg_param, log_interval=inner_log_interval_test)
 
             print("Test loss {:.2e} +- {:.2e}(mean +- std over {} tasks)."
                   .format(test_losses.mean(), test_losses.std(), len(test_losses)))
+
+
+
 
 
 def inner_loop(hparams, params, optim, n_steps, log_interval, create_graph=False):
