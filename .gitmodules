@@ -1,3 +1,0 @@
-[submodule "hypergrad"]
-	path = hypergrad
-	url = https://github.com/prolearner/hypertorch.git
