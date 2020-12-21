@@ -310,12 +310,12 @@ def main(args):
         step_time = time.time() - start_time
 
         if current_step % hp.log_step ==0:
-            str1 = "Epoch [{}/{}], Step {}:".format(
+            str1 = "Epoch [{}/{}], Step {}:".format( \
                 epoch+1, hp.epochs, current_step)
-            str2 = 'MT k={} ({:.3f}s F: {:.3f}s, B: {:.3f}s)'
-                  .format(k, step_time, forward_time, backward_time))
-            str3 = 'Val total Loss : {:.2e} Mel Loss: {:.2e} Mel Postnet Loss: {:.2e} D Loss: {:.2e} F Loss: {:.2e} E Loss: {:.2e}'
-                  .format(val_loss, val_mel_loss, val_postnet_mel_loss, val_d_loss, val_f_loss, val_e_loss))
+            str2 = 'MT k={} ({:.3f}s F: {:.3f}s, B: {:.3f}s)' \
+                .format(k, step_time, forward_time, backward_time)
+            str3 = 'Val total Loss : {:.2e} Mel Loss: {:.2e} Mel Postnet Loss: {:.2e} D Loss: {:.2e} F Loss: {:.2e} E Loss: {:.2e}' \
+                .format(val_loss, val_mel_loss, val_postnet_mel_loss, val_d_loss, val_f_loss, val_e_loss)
             print('\n'+str1)
             print(str2)
             print(str3)
@@ -338,7 +338,7 @@ def main(args):
             torch.save({'model':meta_model.state_dict(), 'optimizer': optimizer.state_dict()}, op.path.join(checkpoint_path, 'checkpoint_{}.pth.tar'.format(surrent_step)))
             print('save model at step {} ...'.format(current_step))
 
-        if current_step % hp.synth_step ==0:
+        #if current_step % hp.synth_step == 0:
             # todo
 
         if current_step % hp.eval_step == 0:         
