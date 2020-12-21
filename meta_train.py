@@ -38,14 +38,14 @@ class Task:
         self.device = next(meta_model.parameters()).device
 
         # stateless version of meta_model
-        self.fmodel = higher.monkeypatch(meta_model, device=device, copy_initial_weights=True)
+        self.fmodel = higher.monkeypatch(meta_model, device=self.device, copy_initial_weights=True)
 
         self.n_params = len(list(meta_model.parameters()))
         self.sample_tr, self.sample_te = data
         self.reg_param = reg_param
         self.batch_size = 1 if not batch_size else batch_size
         self.val_loss = None
-        self.loss_fm = FastSpeech2Loss().to(self.device)
+        self.loss_fn = FastSpeech2Loss().to(self.device)
 
     def bias_reg_f(self, bias, params):
         # l2 biased regularization
@@ -58,7 +58,7 @@ class Task:
         text = torch.from_numpy(self.sample_tr['text']).long().to(self.device)
         mel_target = torch.from_numpy(self.sample_tr['mel_target']).float().to(self.device)
         D = torch.from_numpy(self.sample_tr['D']).long().to(self.device)
-        log_D = torch.from_numpy(self.sample_tr['log_D'].float().to(self.device))
+        log_D = torch.from_numpy(self.sample_tr['log_D']).float().to(self.device)
         f0 = torch.from_numpy(self.sample_tr['f0']).float().to(self.device)
         energy = torch.from_numpy(self.sample_tr['energy']).float().to(self.device)
         src_len = torch.from_numpy(self.sample_tr['src_len']).long().to(self.device)
@@ -66,7 +66,7 @@ class Task:
         max_src_len = np.max(self.sample_tr['src_len']).astype(np.int32)
         max_mel_len = np.max(self.sample_tr['mel_len']).astype(np.int32)
         #forward
-        mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel((text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len), params=params)
+        mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params=params)
         #cal loss
         mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
         total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
@@ -91,7 +91,7 @@ class Task:
         max_src_len = np.max(self.sample_te['src_len']).astype(np.int32)
         max_mel_len = np.max(self.sample_te['mel_len']).astype(np.int32)
         #forward
-        mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel((text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len), params = params)
+        mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params = params)
         #cal loss
         mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
         val_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
@@ -184,6 +184,14 @@ def main(args):
     #define model
     print("defining model...")
     meta_model = FastSpeech2().to(device)
+    ## check  require_grad in meta_model parameters
+    '''
+    for name, param in meta_model.named_parameters():
+        if param.requires_grad==False:
+            print('name:',name)
+            print('data:', param.data)
+    print(done)
+    '''
     print("model has been defined")
     num_param = utils.get_param_num(meta_model)
     print("num of FastSpeech2 Parameters", num_param)
@@ -201,7 +209,7 @@ def main(args):
         return inner_opt_class(train_loss, **inner_opt_kwargs)
 
     #load checkpoint is exists
-    chckpoint_path = os.path.join(hp.checkpoint_path)
+    checkpoint_path = os.path.join(hp.checkpoint_path)
     try:
         checkpoint = torch.load(os.path.join(
             checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
