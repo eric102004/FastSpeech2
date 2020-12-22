@@ -105,7 +105,7 @@ clear_Time = 20
 #--------------------------------------------------
 #some parameters for iMAML
 reg_param = 2               #the coef of the distance loss of model parameters in inner loop training
-T = 16           # the steps taken in inner loop
+T = 8           # the steps taken in inner loop       ##original: 16
 K = 5            # the steps taken in computing hypergradient
 n_tasks_test = 20  # the num of tasks taken in testing phase          ##change from 1000 to 20
 inner_lr = .1     # learning rate of inner loop

@@ -73,13 +73,9 @@ class Task:
         total_loss = total_loss / self.batch_size
         total_loss += 0.5 * self.reg_param * self.bias_reg_f(hparams, params)
         return total_loss
-        #out = self.fmodel(self.train_input, params=params)
-        #return F.cross_entropy(out, self.train_target) + 0.5 * self.reg_param * self.bias_reg_f(hparams, params)
 
     def val_loss_f(self, params, hparams):
         # cross-entropy loss (uses only the task-specific weights in params
-        #out = self.fmodel(self.test_input, params=params)
-        #val_loss = F.cross_entropy(out, self.test_target)/self.batch_size
         text = torch.from_numpy(self.sample_te['text']).long().to(self.device)
         mel_target = torch.from_numpy(self.sample_te['mel_target']).float().to(self.device)
         D = torch.from_numpy(self.sample_te['D']).long().to(self.device)
@@ -99,11 +95,8 @@ class Task:
         self.val_mel_postnet_loss = mel_postnet_loss.item()
         self.val_d_loss = d_loss.item()
         self.val_f_loss = f_loss.item()
-        self.val_e_loss = f_loss.item()
+        self.val_e_loss = e_loss.item()
         self.val_loss = val_loss.item()  # avoid memory leaks
-
-        #pred = out.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-        #self.val_acc = pred.eq(self.test_target.view_as(pred)).sum().item() / len(self.test_target)
 
         return val_loss
 
@@ -117,16 +110,6 @@ def main(args):
     #ways = 5
     batch_size = hp.batch_size                   #the batch_size for each subtask in the inner loop
     n_tasks_test = hp.n_tasks_test  # usually 1000 tasks are used for testing     #num of tasks chosen in testing
-    '''
-    if args.dataset == 'omniglot':
-        reg_param = 2  # reg_param = 2
-        T, K = 16, 5  # T, K = 16, 5
-    elif args.dataset == 'miniimagenet':
-        reg_param = 0.5  # reg_param = 0.5
-        T, K = 10, 5  # T, K = 10, 5
-    else:
-        raise NotImplementedError(args.dataset, " not implemented!")
-    '''
     reg_param = hp.reg_param
     T = hp.T
     K = hp.K
@@ -134,64 +117,35 @@ def main(args):
     T_test = T
     inner_lr = hp.inner_lr
 	
-    '''
-    loc = locals()
-    del loc['parser']
-    del loc['args']
-    '''
 
     #print(args, '\n', loc, '\n')
-    print(args, '\n')
+    print('args:',args, '\n')
     
     #get device
     cuda = not args.no_cuda and torch.cuda.is_available()
     device = torch.device("cuda" if cuda else "cpu")
     kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
 
-    # the following are for reproducibility on GPU, see https://pytorch.org/docs/master/notes/randomness.html
-    # torch.backends.cudnn.deterministic = True
-    # torch.backends.cudnn.benchmark = False
 
     torch.random.manual_seed(args.seed)
     np.random.seed(args.seed)
-    '''
-    if args.dataset == 'omniglot':
-        dataset = omniglot("data", ways=ways, shots=1, test_shots=15, meta_train=True, download=True)
-        test_dataset = omniglot("data", ways=ways, shots=1, test_shots=15, meta_test=True, download=True)
-
-        meta_model = get_cnn_omniglot(64, ways).to(device)
-    elif args.dataset == 'miniimagenet':
-        dataset = miniimagenet("data", ways=ways, shots=1, test_shots=15, meta_train=True, download=True)
-        test_dataset = miniimagenet("data", ways=ways, shots=1, test_shots=15, meta_test=True, download=True)
-
-        meta_model = get_cnn_miniimagenet(32, ways).to(device)
-    else:
-        raise NotImplementedError("DATASET NOT IMPLEMENTED! only omniglot and miniimagenet ")
-
-    dataloader = BatchMetaDataLoader(dataset, batch_size=batch_size, **kwargs)
-    test_dataloader = BatchMetaDataLoader(test_dataset, batch_size=batch_size, **kwargs)
-    '''
+    
+    
+    
     #dataset and dataloader
     print("setting up dataset and dataloader...")
     print("meta_train")
     dataset = Dataset(filelist=hp.filelist_tr, num_subtasks=hp.num_subtasks,num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
     dataloader = DataLoader(dataset, batch_size = hp.batch_size, shuffle=True, collate_fn=dataset.collate_fn, drop_last= True, num_workers=0)
-    test_dataset = Dataset(filelist=hp.filelist_tr, num_subtasks=hp.num_subtasks, num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
-    test_dataloader = DataLoader(test_dataset, batch_size=hp.batch_size, shuffle=True, collate_fn=test_dataset.collate_fn, drop_last= True, num_workers=0)            #since only have tr data now, use training data 
     print("meta-training data file list:", dataset.filelist)
+    print('meta_test')
+    test_dataset = Dataset(filelist=hp.filelist_tr, num_subtasks=hp.num_subtasks, num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
+    test_dataloader = DataLoader(test_dataset, batch_size=hp.batch_size, shuffle=True, collate_fn=test_dataset.collate_fn, drop_last= True, num_workers=0)     #the dataloader for evaluate   ##since only have tr data now, use training data 
     print("meta-testing data file list:", test_dataset.filelist)
     
     #define model
     print("defining model...")
     meta_model = FastSpeech2().to(device)
-    ## check  require_grad in meta_model parameters
-    '''
-    for name, param in meta_model.named_parameters():
-        if param.requires_grad==False:
-            print('name:',name)
-            print('data:', param.data)
-    print(done)
-    '''
     print("model has been defined")
     num_param = utils.get_param_num(meta_model)
     print("num of FastSpeech2 Parameters", num_param)
@@ -222,14 +176,17 @@ def main(args):
             os.makedirs(checkpoint_path)
 
     # Load vocoder
+    '''
     if hp.vocoder == 'melgan':
         melgan = utils.get_melgan()
         melgan.to(device)
     elif hp.vocoder == 'waveglow':
         waveglow = utils.get_waveglow()
         waveglow.to(device)
+    '''
 
     # Init logger
+    print('initing logger...')
     log_path = hp.log_path
     if not os.path.exists(log_path):
         os.makedirs(log_path)
@@ -239,10 +196,11 @@ def main(args):
     val_logger = SummaryWriter(os.path.join(log_path, 'validation'))
 
     # Init synthesis directory
+    '''
     synth_path = hp.synth_path
     if not os.path.exists(synth_path):
         os.makedirs(synth_path)
-
+    '''
       
     current_step = args.restore_step
 
@@ -256,8 +214,6 @@ def main(args):
 
         current_step += 1
 
-        #tr_xs, tr_ys = batch["train"][0].to(device), batch["train"][1].to(device)
-        #tst_xs, tst_ys = batch["test"][0].to(device), batch["test"][1].to(device)
 
         outer_opt.zero_grad()
         scheduled_optim.zero_grad()
@@ -413,70 +369,6 @@ def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param,
             if len(val_losses) >= n_tasks:
                 return np.array(val_losses), np.array(val_mel_losses), np.array(val_mel_postnet_loss), np.array(val_d_losses), np.array(val_f_losses), np.array(val_e_losses)
 
-'''
-def get_cnn_omniglot(hidden_size, n_classes):
-    def conv_layer(ic, oc, ):
-        return nn.Sequential(
-            nn.Conv2d(ic, oc, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
-            nn.BatchNorm2d(oc, momentum=1., affine=True,
-                           track_running_stats=True # When this is true is called the "transductive setting"
-                           )
-        )
-
-    net =  nn.Sequential(
-        conv_layer(1, hidden_size),
-        conv_layer(hidden_size, hidden_size),
-        conv_layer(hidden_size, hidden_size),
-        conv_layer(hidden_size, hidden_size),
-        nn.Flatten(),
-        nn.Linear(hidden_size, n_classes)
-    )
-
-    initialize(net)
-    return net
-
-
-def get_cnn_miniimagenet(hidden_size, n_classes):
-    def conv_layer(ic, oc):
-        return nn.Sequential(
-            nn.Conv2d(ic, oc, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
-            nn.BatchNorm2d(oc, momentum=1., affine=True,
-                           track_running_stats=False  # When this is true is called the "transductive setting"
-                           )
-        )
-
-    net = nn.Sequential(
-        conv_layer(3, hidden_size),
-        conv_layer(hidden_size, hidden_size),
-        conv_layer(hidden_size, hidden_size),
-        conv_layer(hidden_size, hidden_size),
-        nn.Flatten(),
-        nn.Linear(hidden_size*5*5, n_classes,)
-    )
-
-    initialize(net)
-    return net
-
-
-def initialize(net):
-    # initialize weights properly
-    for m in net.modules():
-        if isinstance(m, nn.Conv2d):
-            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-            m.weight.data.normal_(0, math.sqrt(2. / n))
-            if m.bias is not None:
-                m.bias.data.zero_()
-        elif isinstance(m, nn.BatchNorm2d):
-            m.weight.data.fill_(1)
-            m.bias.data.zero_()
-        elif isinstance(m, nn.Linear):
-            #m.weight.data.normal_(0, 0.01)
-            #m.bias.data = torch.ones(m.bias.data.size())
-            m.weight.data.zero_()
-            m.bias.data.zero_()
-
-    return net
-'''
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Data HyperCleaner')
