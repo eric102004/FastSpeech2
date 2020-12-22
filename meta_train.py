@@ -262,12 +262,12 @@ def main(args):
         outer_opt.zero_grad()
         scheduled_optim.zero_grad()
 
-        val_loss = 0
-        val_mel_loss = 0
-        val_mel_postnet_loss = 0
-        val_d_loss = 0
-        val_f_loss = 0
-        val_e_loss = 0
+        train_loss = 0
+        train_mel_loss = 0
+        train_mel_postnet_loss = 0
+        train_d_loss = 0
+        train_f_loss = 0
+        train_e_loss = 0
         forward_time, backward_time = 0, 0
 
         #start training in each subtask
@@ -296,12 +296,12 @@ def main(args):
 
             backward_time_task = time.time() - start_time_task - forward_time_task
 
-            val_loss += task.val_loss
-            val_mel_postnet_loss += task.val_mel_postnet_loss
-            val_mel_loss += task.val_mel_loss
-            val_d_loss += task.val_d_loss
-            val_f_loss += task.val_f_loss
-            val_e_loss += task.val_e_loss
+            train_loss += task.val_loss
+            train_mel_postnet_loss += task.val_mel_postnet_loss
+            train_mel_loss += task.val_mel_loss
+            train_d_loss += task.val_d_loss
+            train_f_loss += task.val_f_loss
+            train_e_loss += task.val_e_loss
             #val_acc += task.val_acc/task.batch_size
 
             forward_time += forward_time_task
@@ -323,24 +323,24 @@ def main(args):
             str2 = 'MT k={} ({:.3f}s F: {:.3f}s, B: {:.3f}s)' \
                 .format(k, step_time, forward_time, backward_time)
             str3 = 'Val total Loss : {:.2e} Mel Loss: {:.2e} Mel Postnet Loss: {:.2e} D Loss: {:.2e} F Loss: {:.2e} E Loss: {:.2e}' \
-                .format(val_loss, val_mel_loss, val_postnet_mel_loss, val_d_loss, val_f_loss, val_e_loss)
+                .format(train_loss, train_mel_loss, train_mel_postnet_loss, train_d_loss, train_f_loss, train_e_loss)
             print('\n'+str1)
             print(str2)
             print(str3)
       
-        #write std output to log file
-        with open(os.path.join(log_path, "log.txt"), "a") as f_log:
-            f_log.write(str1 + '\n')
-            f_log.write(str2 + '\n')
-            f_log.write(str3 + '\n')
-            f_log.write('\n')
+            #write std output to log file
+            with open(os.path.join(log_path, "log.txt"), "a") as f_log:
+                f_log.write(str1 + '\n')
+                f_log.write(str2 + '\n')
+                f_log.write(str3 + '\n')
+                f_log.write('\n')
 
-        train_lgger.add_scalar('Loss/total_loss', val_loss, current_step)
-        train_lgger.add_scalar('Loss/mel_loss', val_mel_loss, current_step)
-        train_lgger.add_scalar('Loss/mel_postnet_loss', val_mel_postnet_loss, current_step)
-        train_lgger.add_scalar('Loss/duration_loss', val_d_loss, current_step)
-        train_lgger.add_scalar('Loss/F0_loss', val_f_loss, current_step)
-        train_lgger.add_scalar('Loss/energy_loss', val_e_loss, current_step)
+            train_logger.add_scalar('Loss/total_loss', train_loss, current_step)
+            train_logger.add_scalar('Loss/mel_loss', train_mel_loss, current_step)
+            train_logger.add_scalar('Loss/mel_postnet_loss', train_mel_postnet_loss, current_step)
+            train_logger.add_scalar('Loss/duration_loss', train_d_loss, current_step)
+            train_logger.add_scalar('Loss/F0_loss', train_f_loss, current_step)
+            train_logger.add_scalar('Loss/energy_loss', train_e_loss, current_step)
 
         if current_step % hp.save_step ==0:
             torch.save({'model':meta_model.state_dict(), 'optimizer': optimizer.state_dict()}, op.path.join(checkpoint_path, 'checkpoint_{}.pth.tar'.format(surrent_step)))
@@ -351,11 +351,18 @@ def main(args):
 
         if current_step % hp.eval_step == 0:         
             print("evaluating....")
-            test_losses = evaluate(n_tasks_test, test_dataloader, meta_model, T_test, get_inner_opt,
+            val_losses, val_mel_losses, val_mel_postnet_losses, val_d_losses, val_f_losses, val_e_losses = evaluate(n_tasks_test, test_dataloader, meta_model, T_test, get_inner_opt,
                                           reg_param, log_interval=inner_log_interval_test)
 
             print("Test loss {:.2e} +- {:.2e}(mean +- std over {} tasks)."
-                  .format(test_losses.mean(), test_losses.std(), len(test_losses)))
+                  .format(val_losses.mean(), val_losses.std(), len(val_losses)))
+
+            val_logger.add_scalar('Val_Loss/total_loss', val_losses.mean(), current_step)
+            val_logger.add_scalar('Val_Loss/mel_loss', val_mel_losses.mean(), current_step)
+            val_logger.add_scalar('Val_Loss/mel_postnet_loss', val_mel_postnet_losses.mean(), current_step)
+            val_logger.add_scalar('Val_Loss/duration_loss', val_d_losses.mean(), cuurent_step)
+            val_logger.add_scalar('Val_Loss/F0_loss', val_f_losses.mean(), current_step)
+            val_logger.add_scalar('Val_Loss/energy_loss', val_e_losses.mean(), current_step)
 
 
 
@@ -377,8 +384,14 @@ def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param,
     meta_model.train()
     device = next(meta_model.parameters()).device
 
-    val_losses, val_accs = [], []
-    for k, (batch_tr, batch_te) in enumerate(dataloader):
+    val_losses = []
+    val_mel_postnet_losses = []
+    val_mel_losses = []
+    val_d_losses = []
+    val_f_losses = []
+    val_e_losses = []
+    while(True):
+      for k, (batch_tr, batch_te) in enumerate(dataloader):
         assert len(batch_tr)==len(batch_te)
         for t_idx in range(len(batch_tr)):
             task = Task(reg_param, meta_model, (batch_tr[t_idx], batch_te[t_idx]), batch_size=batch_tr[t_idx]['text'].shape[0])
@@ -391,9 +404,14 @@ def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param,
 
             val_losses.append(task.val_loss)
             #val_accs.append(task.val_acc)
+            val_mel_postnet_losses.append(task.val_mel_postnet_loss)
+            val_mel_losses.append(task.val_mel_loss)
+            val_d_losses.append(task.val_d_loss)
+            val_f_losses.append(task.val_f_loss)
+            val_e_losses.append(task.val_e_loss)
 
             if len(val_losses) >= n_tasks:
-                return np.array(val_losses)
+                return np.array(val_losses), np.array(val_mel_losses), np.array(val_mel_postnet_loss), np.array(val_d_losses), np.array(val_f_losses), np.array(val_e_losses)
 
 '''
 def get_cnn_omniglot(hidden_size, n_classes):
