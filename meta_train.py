@@ -357,12 +357,12 @@ def main(args):
             print("Test loss {:.2e} +- {:.2e}(mean +- std over {} tasks)."
                   .format(val_losses.mean(), val_losses.std(), len(val_losses)))
 
-            val_logger.add_scalar('Val_Loss/total_loss', val_losses.mean(), current_step)
-            val_logger.add_scalar('Val_Loss/mel_loss', val_mel_losses.mean(), current_step)
-            val_logger.add_scalar('Val_Loss/mel_postnet_loss', val_mel_postnet_losses.mean(), current_step)
-            val_logger.add_scalar('Val_Loss/duration_loss', val_d_losses.mean(), cuurent_step)
-            val_logger.add_scalar('Val_Loss/F0_loss', val_f_losses.mean(), current_step)
-            val_logger.add_scalar('Val_Loss/energy_loss', val_e_losses.mean(), current_step)
+            val_logger.add_scalar('Val_Loss/total_loss', val_losses.mean().item(), current_step)
+            val_logger.add_scalar('Val_Loss/mel_loss', val_mel_losses.mean().item(), current_step)
+            val_logger.add_scalar('Val_Loss/mel_postnet_loss', val_mel_postnet_losses.mean().item(), current_step)
+            val_logger.add_scalar('Val_Loss/duration_loss', val_d_losses.mean().item(), cuurent_step)
+            val_logger.add_scalar('Val_Loss/F0_loss', val_f_losses.mean().item(), current_step)
+            val_logger.add_scalar('Val_Loss/energy_loss', val_e_losses.mean().item(), current_step)
 
 
 
