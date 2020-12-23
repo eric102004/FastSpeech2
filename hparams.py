@@ -94,9 +94,9 @@ log_offset = 1.
 
 
 # Save, log and synthesis
-save_step = 10000          #change from 10000 to 10
+save_step = 100          #change from 10000 to 10
 synth_step = 1000
-eval_step = 1000           #change from 1000 to 10
+eval_step = 10           #change from 1000 to 10
 eval_size = 256
 log_step = 10              #change from 1000 to 10  
 clear_Time = 20
@@ -105,10 +105,10 @@ clear_Time = 20
 #--------------------------------------------------
 #some parameters for iMAML
 reg_param = 2               #the coef of the distance loss of model parameters in inner loop training
-T = 8           # the steps taken in inner loop       ##original: 16
-K = 5            # the steps taken in computing hypergradient
+T = 16           # the steps taken in inner loop       ##original: 16
+K = 10            # the steps taken in computing hypergradient
 n_tasks_test = 20  # the num of tasks taken in testing phase          ##change from 1000 to 20
-inner_lr = .1     # learning rate of inner loop
+inner_lr = 0.1     # learning rate of inner loop          ##change from 0.1 to 0.001
 num_subtasks = 5           # the num of subtasks in meta learning (num o speakers),used to initializedataset
 filelist_tr = ['train_1.txt', 'train_2.txt', 'train_3.txt', 'train_4.txt', 'train_5.txt']
 filelist_val = ['val_1.txt', 'val_2.txt', 'val_2.txt', 'val_4.txt', 'val_5.txt']

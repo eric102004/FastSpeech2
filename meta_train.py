@@ -91,11 +91,12 @@ class Task:
         #cal loss
         mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
         val_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
-        self.val_mel_loss = mel_loss.item()
-        self.val_mel_postnet_loss = mel_postnet_loss.item()
-        self.val_d_loss = d_loss.item()
-        self.val_f_loss = f_loss.item()
-        self.val_e_loss = e_loss.item()
+        val_loss /= self.batch_size
+        self.val_mel_loss = mel_loss.item() / self.batch_size
+        self.val_mel_postnet_loss = mel_postnet_loss.item() / self.batch_size
+        self.val_d_loss = d_loss.item() / self.batch_size
+        self.val_f_loss = f_loss.item() / self.batch_size
+        self.val_e_loss = e_loss.item() / self.batch_size
         self.val_loss = val_loss.item()  # avoid memory leaks
 
         return val_loss
@@ -274,6 +275,14 @@ def main(args):
         step_time = time.time() - start_time
 
         if current_step % hp.log_step ==0:
+            #normalizing
+            train_loss /= len(batch_tr)
+            train_mel_postnet_loss /= len(batch_tr)
+            train_mel_loss /= len(batch_tr)
+            train_d_loss /= len(batch_tr)
+            train_f_loss /= len(batch_tr)
+            train_e_loss /= len(batch_tr)
+
             str1 = "Epoch [{}/{}], Step {}:".format( \
                 epoch+1, hp.epochs, current_step)
             str2 = 'MT k={} ({:.3f}s F: {:.3f}s, B: {:.3f}s)' \
@@ -299,7 +308,7 @@ def main(args):
             train_logger.add_scalar('Loss/energy_loss', train_e_loss, current_step)
 
         if current_step % hp.save_step ==0:
-            torch.save({'model':meta_model.state_dict(), 'optimizer': optimizer.state_dict()}, op.path.join(checkpoint_path, 'checkpoint_{}.pth.tar'.format(surrent_step)))
+            torch.save({'model':meta_model.state_dict(), 'optimizer': outer_opt.state_dict()}, os.path.join(checkpoint_path, 'checkpoint_{}.pth.tar'.format(current_step)))
             print('save model at step {} ...'.format(current_step))
 
         #if current_step % hp.synth_step == 0:
@@ -316,7 +325,7 @@ def main(args):
             val_logger.add_scalar('Val_Loss/total_loss', val_losses.mean().item(), current_step)
             val_logger.add_scalar('Val_Loss/mel_loss', val_mel_losses.mean().item(), current_step)
             val_logger.add_scalar('Val_Loss/mel_postnet_loss', val_mel_postnet_losses.mean().item(), current_step)
-            val_logger.add_scalar('Val_Loss/duration_loss', val_d_losses.mean().item(), cuurent_step)
+            val_logger.add_scalar('Val_Loss/duration_loss', val_d_losses.mean().item(), current_step)
             val_logger.add_scalar('Val_Loss/F0_loss', val_f_losses.mean().item(), current_step)
             val_logger.add_scalar('Val_Loss/energy_loss', val_e_losses.mean().item(), current_step)
 
@@ -367,7 +376,7 @@ def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param,
             val_e_losses.append(task.val_e_loss)
 
             if len(val_losses) >= n_tasks:
-                return np.array(val_losses), np.array(val_mel_losses), np.array(val_mel_postnet_loss), np.array(val_d_losses), np.array(val_f_losses), np.array(val_e_losses)
+                return np.array(val_losses), np.array(val_mel_losses), np.array(val_mel_postnet_losses), np.array(val_d_losses), np.array(val_f_losses), np.array(val_e_losses)
 
 
 if __name__ == '__main__':
