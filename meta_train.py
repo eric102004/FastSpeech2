@@ -238,7 +238,7 @@ def main(args):
             inner_opt = get_inner_opt(task.train_loss_f)
 
             # single task inner loop
-            params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
+            params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]  #change to ANIL
             last_param = inner_loop(meta_model.parameters(), params, inner_opt, T, log_interval=inner_log_interval)[-1]
             forward_time_task = time.time() - start_time_task
 
@@ -316,9 +316,8 @@ def main(args):
 
         if current_step % hp.eval_step == 0:         
             print("evaluating....")
-            val_losses, val_mel_losses, val_mel_postnet_losses, val_d_losses, val_f_losses, val_e_losses = evaluate(n_tasks_test, test_dataloader, meta_model, T_test, get_inner_opt,
-                                          reg_param, log_interval=inner_log_interval_test)
-
+            val_losses, val_mel_losses, val_mel_postnet_losses, val_d_losses, val_f_losses, val_e_losses = evaluate(n_tasks_test, test_dataloader, meta_model, T_test, get_inner_opt, reg_param, log_interval=inner_log_interval_test)
+            #val_losses, val_mel_losses, val_mel_postnet_losses, val_d_losses, val_f_losses, val_e_losses = normal_evaluate(n_tasks_test, test_dataloader, meta_model)
             print("Test loss {:.2e} +- {:.2e}(mean +- std over {} tasks)."
                   .format(val_losses.mean(), val_losses.std(), len(val_losses)))
 
@@ -344,6 +343,39 @@ def inner_loop(hparams, params, optim, n_steps, log_interval, create_graph=False
 
     return params_history
 
+def normal_evaluate(n_tasks, dataloader, meta_model):
+    # check whether meta model is at a good initialized point
+    meta_model.eval()
+    device = next(meta_model.parameters()).device
+
+    val_losses = []
+    val_mel_postnet_losses = []
+    val_mel_losses = []
+    val_d_losses = []
+    val_f_losses = []
+    val_e_losses = []
+    while(True):
+      for k, (batch_tr, batch_te) in enumerate(dataloader):
+        assert len(batch_tr)==len(batch_te)
+        for t_idx in range(len(batch_tr)):
+            task = Task(2 , meta_model, (batch_tr[t_idx], batch_te[t_idx]), batch_size=batch_tr[t_idx]['text'].shape[0])
+            #inner_opt = get_inner_opt(task.train_loss_f)
+
+            params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
+            #last_param = inner_loop(meta_model.parameters(), params, inner_opt, n_steps, log_interval=log_interval)[-1]
+
+            task.val_loss_f(params, meta_model.parameters())
+
+            val_losses.append(task.val_loss)
+            #val_accs.append(task.val_acc)
+            val_mel_postnet_losses.append(task.val_mel_postnet_loss)
+            val_mel_losses.append(task.val_mel_loss)
+            val_d_losses.append(task.val_d_loss)
+            val_f_losses.append(task.val_f_loss)
+            val_e_losses.append(task.val_e_loss)
+
+            if len(val_losses) >= n_tasks:
+                return np.array(val_losses), np.array(val_mel_losses), np.array(val_mel_postnet_losses), np.array(val_d_losses), np.array(val_f_losses), np.array(val_e_losses)
 
 def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param, log_interval=None):
     meta_model.train()
