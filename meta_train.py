@@ -238,7 +238,13 @@ def main(args):
             inner_opt = get_inner_opt(task.train_loss_f)
 
             # single task inner loop
-            params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]  #change to ANIL
+            #params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]  #change to ANIL
+            params = []
+            for n,p in meta_model.named_parameters():
+                if n[:3] == 'var':
+                    params.append(p.detach().clone().requires_grad_(True))
+                else:
+                    params.append(p.detach().clone().requires_grad_(False))
             last_param = inner_loop(meta_model.parameters(), params, inner_opt, T, log_interval=inner_log_interval)[-1]
             forward_time_task = time.time() - start_time_task
 

@@ -88,23 +88,14 @@ class GradientDescent(DifferentiableOptimizer):
 
 
 def gd_step(params, loss, step_size, create_graph=True):
-    grads = torch.autograd.grad(loss, params, create_graph=create_graph, allow_unused=True)
-    '''
-    print('checking grads...')
-    none_count =0
-    grad_count = 0
-    for g in grads:
-        print('type(g):',type(g))
-        #print('g.shape:',g.shape)
-        #print('g:',g)
-        print(grad_count)
-        if torch.is_tensor(g):
-            grad_count+=1
+    #grads = torch.autograd.grad(loss, params, create_graph=create_graph, allow_unused=True)
+    grads = []
+    for p in params:
+        if p.requires_grad:
+            grads.append(torch.autograd.grad(loss, p, create_graph=create_graph, retain_graph=True,allow_unused=True)[0])
         else:
-            none_count+=1
-    print('grad_count:',grad_count)
-    print('none_count:',none_count)
-    '''
+            grads.append(None)
+    
     new_w = []
     for w,g in zip(params, grads):
         if torch.is_tensor(g):
