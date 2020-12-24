@@ -245,8 +245,16 @@ def main(args):
                     params.append(p.detach().clone().requires_grad_(True))
                 else:
                     params.append(p.detach().clone().requires_grad_(False))
+                '''
+                if n[-12:] == 'position_enc':
+                    params.append(p.detach().clone().requires_grad_(False))
+                else:
+                    params.append(p.detach().clone().requires_grad_(True))
+                '''
             last_param = inner_loop(meta_model.parameters(), params, inner_opt, T, log_interval=inner_log_interval)[-1]
             forward_time_task = time.time() - start_time_task
+            with open(os.path.join(log_path, "log.txt"), "a") as f_log:
+                f_log.write('forward_time_task: '+str(forward_time_task) + '\n')
 
             # single task hypergradient computation
             if args.hg_mode == 'CG':
@@ -258,6 +266,9 @@ def main(args):
                                outer_loss=task.val_loss_f)    #gradient will add to p.grad for p in model parameters
 
             backward_time_task = time.time() - start_time_task - forward_time_task
+            with open(os.path.join(log_path, "log.txt"), "a") as f_log:
+                f_log.write('backward_time_task: '+str(backward_time_task) + '\n')
+            
 
             train_loss += task.val_loss
             train_mel_postnet_loss += task.val_mel_postnet_loss

@@ -179,7 +179,23 @@ def CG(params: List[Tensor],
 
     if stochastic:
         w_mapped = fp_map(params, hparams)
-    
+    grads_w = []
+    for w in hparams:
+        if w.requires_grad():
+            grads_w.append(w)
+    grads_buffer = torch_grad(w_mapped, grads_w, grad_outputs=vs)
+    count =0
+    grads = []
+    for w in hparams:
+        if w.requires_grad():
+            if torch.is_tensor(grads_buffer[count]):
+                grads.append(grads_buffer[count])
+            else:
+                grads.append(None)
+            count+=1
+        else:
+            grads.append(None)
+    '''
     grads = list()
     for w in hparams:
         if w.requires_grad==True:
@@ -187,7 +203,7 @@ def CG(params: List[Tensor],
             grads.append(g[0])
         else:
             grads.append(None)
-    
+    '''
     #grads = torch_grad(w_mapped, hparams, grad_outputs=vs, allow_unused=True)
     grads = [g + v if g is not None else v for g, v in zip(grads, grad_outer_hparams)]
 
@@ -316,6 +332,7 @@ def update_tensor_grads(hparams, grads):
 def grad_unused_zero(output, inputs, grad_outputs=None, retain_graph=False, create_graph=False):
     #grads = torch.autograd.grad(output, inputs, grad_outputs=grad_outputs, allow_unused=True,
     #                            retain_graph=retain_graph, create_graph=create_graph)
+    '''
     grads = list()
     for w in inputs:
         if w.requires_grad==False:
@@ -324,7 +341,26 @@ def grad_unused_zero(output, inputs, grad_outputs=None, retain_graph=False, crea
             g = torch.autograd.grad(output, w, grad_outputs=grad_outputs, allow_unused=True,
                                     retain_graph=retain_graph, create_graph=create_graph)
             grads.append(g)
+    '''
+    grads_inputs = list()
+    for w in inputs:
+        if w.requires_grad==True:
+            grads_inputs.append(w)
+    grads_buffer = torch.autograd.grad(output, grads_inputs, grad_outputs=grad_outputs, allow_unused=True, retain_graph = retain_graph, create_graph = create_graph)
 
+    count=0
+    buffer1 = tuple()
+    for p in inputs:
+        if p.requires_grad==True:
+            if torch.is_tensor(grads_buffer[count]):
+                buffer1 = buffer1 + (grads_buffer[count], )
+            else:
+                buffer1 = buffer1 + (torch.zeros_like(p), )
+            count+=1
+        else:
+            buffer1 = buffer1 + (torch.zeros_like(p), )
+
+    '''
     def grad_or_zeros(grad, var):
         return torch.zeros_like(var) if torch.is_tensor(grad)==False else grad
         #return torch.zeros_like(var) if grad is None else grad
@@ -333,10 +369,10 @@ def grad_unused_zero(output, inputs, grad_outputs=None, retain_graph=False, crea
     for g,v in zip(grads, inputs):
         #print(type(g[0]))
         #print(len(g))
-        new_g = grad_or_zeros(g[0], v)
+        new_g = grad_or_zeros(g, v)
         #print(type(new_g))
         buffer1 = buffer1 + (new_g,)
     return buffer1
-    
+    '''
     #return tuple(grad_or_zeros(g[0], v) for g, v in zip(grads, inputs))
 
