@@ -1,11 +1,12 @@
 import os
 
 # Dataset
-dataset = "LJSpeech"
-data_path = "../LJSpeech-1.1"
+#dataset = "LJSpeech"
+#data_path = "../LJSpeech-1.1"
 #dataset = "Blizzard2013"
 #data_path = "./Blizzard-2013/train/segmented/"
-
+dataset = "LibriTTS"
+data_path = "../LibriTTS"
 
 # Text
 text_cleaners = ['english_cleaners']
@@ -50,16 +51,22 @@ max_seq_len = 1000
 
 # Quantization for F0 and energy
 ### for LJSpeech ###
-f0_min = 71.0
-f0_max = 795.8
-energy_min = 0.018
-energy_max = 315.0
+#f0_min = 71.0
+#f0_max = 795.8
+#energy_min = 0.018
+#energy_max = 315.0
 
 ### for Blizzard2013 ###
 #f0_min = 71.0
 #f0_max = 786.7
 #energy_min = 21.23
 #energy_max = 101.02
+
+### for LibriTTS ###
+f0_min =  71.1159764592286
+f0_max =  793.1350368735605
+energy_min = 0.00029172966605983675
+energy_max = 249.08377075195312
 
 n_bins = 256
 

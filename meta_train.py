@@ -411,7 +411,13 @@ def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param,
             task = Task(reg_param, meta_model, (batch_tr[t_idx], batch_te[t_idx]), batch_size=batch_tr[t_idx]['text'].shape[0])
             inner_opt = get_inner_opt(task.train_loss_f)
 
-            params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
+            #params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
+            params = []
+            for n, p in meta_model.named_parameters():
+                if n[:3] == 'var':
+                    params.append(p.detach().clone().requires_grad_(True))
+                else:
+                    params.append(p.detach().clone().requires.grad_(False))
             last_param = inner_loop(meta_model.parameters(), params, inner_opt, n_steps, log_interval=log_interval)[-1]
 
             task.val_loss_f(last_param, meta_model.parameters())

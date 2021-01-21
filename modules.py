@@ -26,8 +26,8 @@ class VarianceAdaptor(nn.Module):
         self.pitch_predictor = VariancePredictor()
         self.energy_predictor = VariancePredictor()
         
-        self.pitch_bins = nn.Parameter(torch.exp(torch.linspace(np.log(hp.f0_min), np.log(hp.f0_max), hp.n_bins-1)))
-        self.energy_bins = nn.Parameter(torch.linspace(hp.energy_min, hp.energy_max, hp.n_bins-1))
+        self.pitch_bins = nn.Parameter(torch.exp(torch.linspace(np.log(hp.f0_min), np.log(hp.f0_max), hp.n_bins-1)), requires_grad = False)
+        self.energy_bins = nn.Parameter(torch.linspace(hp.energy_min, hp.energy_max, hp.n_bins-1), requires_grad = False)
         self.pitch_embedding = nn.Embedding(hp.n_bins, hp.encoder_hidden)
         self.energy_embedding = nn.Embedding(hp.n_bins, hp.encoder_hidden)
     
@@ -42,6 +42,7 @@ class VarianceAdaptor(nn.Module):
             mel_mask = utils.get_mask_from_lengths(mel_len)
         
         pitch_prediction = self.pitch_predictor(x, mel_mask)
+
         if pitch_target is not None:
             pitch_embedding = self.pitch_embedding(torch.bucketize(pitch_target, self.pitch_bins))
         else:

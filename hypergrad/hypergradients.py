@@ -181,13 +181,13 @@ def CG(params: List[Tensor],
         w_mapped = fp_map(params, hparams)
     grads_w = []
     for w in hparams:
-        if w.requires_grad():
+        if w.requires_grad:
             grads_w.append(w)
     grads_buffer = torch_grad(w_mapped, grads_w, grad_outputs=vs)
     count =0
     grads = []
     for w in hparams:
-        if w.requires_grad():
+        if w.requires_grad:
             if torch.is_tensor(grads_buffer[count]):
                 grads.append(grads_buffer[count])
             else:
@@ -359,6 +359,7 @@ def grad_unused_zero(output, inputs, grad_outputs=None, retain_graph=False, crea
             count+=1
         else:
             buffer1 = buffer1 + (torch.zeros_like(p), )
+    return buffer1
 
     '''
     def grad_or_zeros(grad, var):

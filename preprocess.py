@@ -1,5 +1,5 @@
 import os
-from data import ljspeech, blizzard2013
+from data import ljspeech, blizzard2013, libritts
 import hparams as hp
 
 def read_metadata_all(train_path = 'preprocessed/LJSpeech/train_all.txt', val_path = 'preprocessed/LJSpeech/val_all.txt'):
@@ -62,6 +62,8 @@ def main():
         train, val = ljspeech.build_from_path(in_dir, out_dir)
     if hp.dataset == "Blizzard2013":
         train, val = blizzard2013.build_from_path(in_dir, out_dir)
+    if hp.dataset == "LibriTTS":
+        train, val = libritts.build_from_path(in_dir, out_dir)
     write_metadata(train, val, out_dir)
     
 if __name__ == "__main__":
