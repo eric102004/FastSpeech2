@@ -55,6 +55,11 @@ def get_and_fine_tune_FastSpeech2(num, loader):
     #fine-tuning
     print('start fine-tuning')
     model = model.train()
+    #check grad
+    for n,p in model.named_parameters():
+        #print(n, p.requires_grad)
+        if n[:3] !='var':
+            p.requires_grad = False
     current_step = 0
     while current_step < hp.syn_fine_tune_step:
         for i,batchs in enumerate(loader):
@@ -79,7 +84,12 @@ def get_and_fine_tune_FastSpeech2(num, loader):
                 mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = Loss(
                         log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
                 total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss 
-                
+               
+                # print loss
+                if (current_step+1)%10==0:
+                    str2 = "Total Loss: {:.4f}, Mel Loss: {:.4f}, Mel PostNet Loss: {:.4f}, Duration Loss: {:.4f}, F0 Loss: {:.4f}, Energy Loss: {:.4f};".format(total_loss, mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss)
+                    print(str2 + '\n')
+
                 # Backward
                 total_loss = total_loss / hp.acc_steps
                 total_loss.backward()
@@ -98,7 +108,7 @@ def get_and_fine_tune_FastSpeech2(num, loader):
     model.eval()
     return model
 
-def synthesize(model, waveglow, melgan, text, sentence, prefix='', speaker):
+def synthesize(model, waveglow, melgan, text, sentence, speaker, prefix=''):
     sentence = sentence[:200] # long filename will result in OS Error
     
     src_len = torch.from_numpy(np.array([text.shape[1]])).to(device)
@@ -161,4 +171,4 @@ if __name__ == "__main__":
         
         for sentence in sentences:
             text = preprocess(sentence)
-            synthesize(model, waveglow, melgan, text, sentence, prefix='step_{}'.format(args.step), speaker)
+            synthesize(model, waveglow, melgan, text, sentence, speaker, prefix='step_{}'.format(args.step))
