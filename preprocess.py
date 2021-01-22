@@ -41,8 +41,18 @@ def write_metadata(train, val, out_dir = 'preprocessed/LJSpeech'):
     with open(os.path.join(out_dir, 'val.txt'), 'w', encoding='utf-8') as f:
         for m in val:
             f.write(m + '\n')
+def write_metadata_meta(train, val, out_dir = 'preprocessed/libriTTS'):
+    for speaker in train.keys():
+        with open(os.path.join(out_dir, f'{speaker}.txt'), 'w', encoding='utf-8') as f:
+            for m in train[speaker]:
+                f.write(m + '\n')
+    for speaker in val.keys():
+        with open(os.path.join(out_dir, f'{speaker}.txt'), 'w', encoding='utf-8') as f:
+            for m in val[speaker]:
+                f.write(m + '\n')
 
 def main():
+    exp_mode = hp.exp_mode
     in_dir = hp.data_path
     out_dir = hp.preprocessed_path
     mel_out_dir = os.path.join(out_dir, "mel")
@@ -63,8 +73,14 @@ def main():
     if hp.dataset == "Blizzard2013":
         train, val = blizzard2013.build_from_path(in_dir, out_dir)
     if hp.dataset == "LibriTTS":
-        train, val = libritts.build_from_path(in_dir, out_dir)
-    write_metadata(train, val, out_dir)
+        if exp_mode == 'normal':
+            train, val = libritts.build_from_path(in_dir, out_dir)
+        elif exp_mode == 'meta':
+            train, val = libritts.build_from_path_meta(in_dir, out_dir) #train,val will be dicts
+    if exp_mode == 'normal':
+        write_metadata(train, val, out_dir)
+    elif exp_mode == 'meta':
+        write_metadata_meta(train, val, out_dir)
     
 if __name__ == "__main__":
     #train, val =  read_metadata_all()

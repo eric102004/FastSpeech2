@@ -57,7 +57,7 @@ def build_from_path(in_dir, out_dir):
             print(done)
             '''
             
-            if basename[:2] in ['06']:
+            if basename[:4] in ['1116']:            
                 val.append(info)
             else:
                 train.append(info)
@@ -84,6 +84,74 @@ def build_from_path(in_dir, out_dir):
             f.write(s+'\n')
     
     return [r for r in train if r is not None], [r for r in val if r is not None]
+
+
+def build_from_path_meta(in_dir, out_dir):
+    index = 1
+    train = dict()
+    val = dict()
+    f0_max = energy_max = 0
+    f0_min = energy_min = 1000000
+    n_frames = 0
+    with open(os.path.join(in_dir, 'metadata.csv'), encoding='utf-8') as f:  #chane
+        for line in f:
+            parts = line.strip().split('|')
+            speaker = parts[0]
+            speaker_sub = parts[1]
+            basename = parts[2]
+            text = parts[3]
+
+            try:
+                ret = process_utterance(in_dir, out_dir, speaker, speaker_sub, basename)     #把此行寫進下六行的if內
+            except:
+                ret = None
+                print('error file:',speaker, speaker_sub, basename)
+            if ret is None:
+                continue
+            else:
+                info, f_max, f_min, e_max, e_min, n = ret
+            #added by eric
+           
+            if speaker+'.txt' in hp.filelist_tr:
+                if speaker not in train.keys():
+                    train[speaker] = []
+                train[speaker].append(info)
+            elif speaker+'.txt' in hp.filelist_val:
+                if speaker not in val.keys():
+                    val[speaker] = []
+                val[speaker].append(info)
+            else:
+                print('not in the filelist!' + '\n')
+                continue
+                
+
+            if index % 100 == 0:
+                print("#files done %d" % index)
+            index = index + 1
+
+            f0_max = max(f0_max, f_max)
+            f0_min = min(f0_min, f_min)
+            energy_max = max(energy_max, e_max)
+            energy_min = min(energy_min, e_min)
+            n_frames += n
+    
+    with open(os.path.join(out_dir, 'stat.txt'), 'w', encoding='utf-8') as f:     
+        strs = ['Total time: {} hours'.format(n_frames*hp.hop_length/hp.sampling_rate/3600),
+                'Total frames: {}'.format(n_frames),
+                'Min F0: {}'.format(f0_min),
+                'Max F0: {}'.format(f0_max),
+                'Min energy: {}'.format(energy_min),
+                'Max energy: {}'.format(energy_max)]
+        for s in strs:
+            print(s)
+            f.write(s+'\n')
+   
+    #remove None from 2 dicts
+    for s in train.keys():
+        train[s] = [r for r in train[s] if r is not None]
+    for s in val.keys():
+        val[s] = [r for r in val[s] if r is not None]
+    return train, val
 
 def process_utterance(in_dir, out_dir, speaker, speaker_sub, basename):
     wav_path = os.path.join(in_dir, 'train-clean-100', speaker, speaker_sub, '{}.wav'.format(basename))   #更改wav_path

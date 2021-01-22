@@ -110,14 +110,17 @@ clear_Time = 20
 
 
 #--------------------------------------------------
+exp_mode = 'meta'
 #some parameters for iMAML
 reg_param = 2               #the coef of the distance loss of model parameters in inner loop training
 T = 16           # the steps taken in inner loop       ##original: 16
 K = 5            # the steps taken in computing hypergradient
 n_tasks_test = 20  # the num of tasks taken in testing phase          ##change from 1000 to 20
 inner_lr = 0.1     # learning rate of inner loop          ##change from 0.1 to 0.001
-num_subtasks = 5           # the num of subtasks in meta learning (num o speakers),used to initializedataset
-filelist_tr = ['train_1.txt', 'train_2.txt', 'train_3.txt', 'train_4.txt', 'train_5.txt']
-filelist_val = ['val_1.txt', 'val_2.txt', 'val_2.txt', 'val_4.txt', 'val_5.txt']
+filelist_tr = ['103.txt', '1069.txt', '1088.txt', '1098.txt']
+filelist_val = ['1116.txt']
+num_subtasks_tr = len(filelist_tr)           # the num of subtasks in meta learning (num o speakers),used to initializedataset
+num_subtasks_val = len(filelist_val)
+
 num_subtask_training_data = 5      # the num of training data in each subtasks, used to initialize the dataset
 num_subtask_testing_data = 5        # the num of testing data in each subasks

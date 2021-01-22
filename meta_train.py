@@ -39,7 +39,7 @@ class Task:
 
         # stateless version of meta_model
         self.fmodel = higher.monkeypatch(meta_model, device=self.device, copy_initial_weights=True)
-
+        
         self.n_params = len(list(meta_model.parameters()))
         self.sample_tr, self.sample_te = data
         self.reg_param = reg_param
@@ -136,11 +136,11 @@ def main(args):
     #dataset and dataloader
     print("setting up dataset and dataloader...")
     print("meta_train")
-    dataset = Dataset(filelist=hp.filelist_tr, num_subtasks=hp.num_subtasks,num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
+    dataset = Dataset(filelist=hp.filelist_tr, mode='train', num_subtasks=hp.num_subtasks_tr, num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
     dataloader = DataLoader(dataset, batch_size = hp.batch_size, shuffle=True, collate_fn=dataset.collate_fn, drop_last= True, num_workers=0)
     print("meta-training data file list:", dataset.filelist)
     print('meta_test')
-    test_dataset = Dataset(filelist=hp.filelist_tr, num_subtasks=hp.num_subtasks, num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
+    test_dataset = Dataset(filelist=hp.filelist_val, mode='val', num_subtasks=hp.num_subtasks_val, num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
     test_dataloader = DataLoader(test_dataset, batch_size=hp.batch_size, shuffle=True, collate_fn=test_dataset.collate_fn, drop_last= True, num_workers=0)     #the dataloader for evaluate   ##since only have tr data now, use training data 
     print("meta-testing data file list:", test_dataset.filelist)
     
@@ -241,7 +241,7 @@ def main(args):
             #params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]  #change to ANIL
             params = []
             for n,p in meta_model.named_parameters():
-                if n[:3] == 'var':
+                if n[:3] == 'var' and p.requires_grad:
                     params.append(p.detach().clone().requires_grad_(True))
                 else:
                     params.append(p.detach().clone().requires_grad_(False))
@@ -378,7 +378,13 @@ def normal_evaluate(n_tasks, dataloader, meta_model):
             task = Task(2 , meta_model, (batch_tr[t_idx], batch_te[t_idx]), batch_size=batch_tr[t_idx]['text'].shape[0])
             #inner_opt = get_inner_opt(task.train_loss_f)
 
-            params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
+            #params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
+            params = []
+            for n,p in meta_model.named_parameters():
+                if n[:3] == 'var' and p.requires_grad:
+                    params.append(p.detach().clone().requires_grad_(True))
+                else:
+                    params.append(p.detach().clone().requires_grad_(False))
             #last_param = inner_loop(meta_model.parameters(), params, inner_opt, n_steps, log_interval=log_interval)[-1]
 
             task.val_loss_f(params, meta_model.parameters())
@@ -414,10 +420,10 @@ def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param,
             #params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
             params = []
             for n, p in meta_model.named_parameters():
-                if n[:3] == 'var':
+                if n[:3] == 'var' and p.requires_grad:
                     params.append(p.detach().clone().requires_grad_(True))
                 else:
-                    params.append(p.detach().clone().requires.grad_(False))
+                    params.append(p.detach().clone().requires_grad_(False))
             last_param = inner_loop(meta_model.parameters(), params, inner_opt, n_steps, log_interval=log_interval)[-1]
 
             task.val_loss_f(last_param, meta_model.parameters())
