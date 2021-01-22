@@ -101,7 +101,7 @@ log_offset = 1.
 
 
 # Save, log and synthesis
-save_step = 100          #change from 10000 to 10
+save_step = 200          #change from 10000 to 10
 synth_step = 1000
 eval_step = 10           #change from 1000 to 10
 eval_size = 256
@@ -124,3 +124,7 @@ num_subtasks_val = len(filelist_val)
 
 num_subtask_training_data = 5      # the num of training data in each subtasks, used to initialize the dataset
 num_subtask_testing_data = 5        # the num of testing data in each subasks
+
+#parameters for synthesis
+synthesize_speaker_list = ['1116']
+syn_fine_tune_step = 500
