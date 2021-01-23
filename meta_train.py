@@ -135,11 +135,11 @@ def main(args):
     #dataset and dataloader
     print("setting up dataset and dataloader...")
     print("meta_train")
-    dataset = Dataset(filelist=hp.filelist_tr, mode='train', num_subtasks=hp.num_subtasks_tr, num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
+    dataset = Dataset(filelist=hp.filelist_tr, mode='train', num_subtasks=hp.num_subtasks_tr, meta_testing_ratio = hp.meta_testing_ratio)
     dataloader = DataLoader(dataset, batch_size = hp.batch_size, shuffle=True, collate_fn=dataset.collate_fn, drop_last= True, num_workers=0)
     print("meta-training data file list:", dataset.filelist)
     print('meta_test')
-    test_dataset = Dataset(filelist=hp.filelist_val, mode='val', num_subtasks=hp.num_subtasks_val, num_subtask_training_data=hp.num_subtask_training_data, num_subtask_testing_data = hp.num_subtask_testing_data)
+    test_dataset = Dataset(filelist=hp.filelist_val, mode='val', num_subtasks=hp.num_subtasks_val, meta_testing_ratio = hp.meta_testing_ratio)
     test_dataloader = DataLoader(test_dataset, batch_size=hp.batch_size, shuffle=True, collate_fn=test_dataset.collate_fn, drop_last= True, num_workers=0)     #the dataloader for evaluate   ##since only have tr data now, use training data 
     print("meta-testing data file list:", test_dataset.filelist)
     
@@ -164,13 +164,14 @@ def main(args):
 
     #load checkpoint is exists
     checkpoint_path = os.path.join(hp.checkpoint_path)
-    try:
+    #try:
+    if True:
         checkpoint = torch.load(os.path.join(
             checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
-        meta_model.load_state_dict(checkpoint['model'])
-        outer_opt.load_state_dict(checkpoint['optimizer'])
+        meta_load_state_dict(meta_model, outer_opt, checkpoint) 
         print("\n---Model Restored at Step {}---\n".format(args.restore_step))
-    except:
+    #except:
+    else:
         print("\n---Start New Training---\n")
         if not os.path.exists(checkpoint_path):
             os.makedirs(checkpoint_path)
@@ -438,6 +439,18 @@ def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param,
             if len(val_losses) >= n_tasks:
                 return np.array(val_losses), np.array(val_mel_losses), np.array(val_mel_postnet_losses), np.array(val_d_losses), np.array(val_f_losses), np.array(val_e_losses)
 
+
+def meta_load_state_dict(meta_model, opt, checkpoint):
+    for n, p in checkpoint['model'].items():
+        if n[7:] not in meta_model.state_dict():
+            print('not in meta_model:', n)
+            continue
+        if isinstance(p, nn.parameter.Parameter):
+            p = p.data
+        meta_model.state_dict()[n[7:]].copy_(p)
+    #meta_model.load_state_dict(checkpoint['model'])
+    #opt.load_state_dict(checkpoint['optimizer'])
+    print('succeed!')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Data HyperCleaner')
