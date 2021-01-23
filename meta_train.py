@@ -91,12 +91,11 @@ class Task:
         #cal loss
         mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
         val_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
-        val_loss /= self.batch_size
-        self.val_mel_loss = mel_loss.item() / self.batch_size
-        self.val_mel_postnet_loss = mel_postnet_loss.item() / self.batch_size
-        self.val_d_loss = d_loss.item() / self.batch_size
-        self.val_f_loss = f_loss.item() / self.batch_size
-        self.val_e_loss = e_loss.item() / self.batch_size
+        self.val_mel_loss = mel_loss.item()
+        self.val_mel_postnet_loss = mel_postnet_loss.item()
+        self.val_d_loss = d_loss.item()
+        self.val_f_loss = f_loss.item()
+        self.val_e_loss = e_loss.item()
         self.val_loss = val_loss.item()  # avoid memory leaks
 
         return val_loss
