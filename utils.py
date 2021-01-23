@@ -56,37 +56,58 @@ def process_meta(meta_path):
         return name, text
 
 def meta_process_meta(meta_file_list, num_subtasks, num_subtask_training_data, num_subtask_testing_data):
+    '''
     #initializing
     text_tr = [[None for j in range(num_subtasks)] for i in range(num_subtask_training_data)]
     name_tr = [[None for j in range(num_subtasks)] for i in range(num_subtask_training_data)]
     text_te = [[None for j in range(num_subtasks)] for i in range(num_subtask_testing_data)]
     name_te = [[None for j in range(num_subtasks)] for i in range(num_subtask_testing_data)]
+    '''
+    #1. change to dict format
+    text_dict = dict()   #text_dict -> each speaker -> tr, te, full
+    name_dict = dict()
     for task_idx, filename in enumerate(meta_file_list):
+        speaker = filename[:-4]
+        text_dict[speaker] = {}
+        text_dict[speaker]['full'] = []
+        name_dict[speaker] = {}
+        name_dict[speaker]['full'] = []
         filepath = os.path.join(hp.preprocessed_path, filename)
         with open(filepath, "r", encoding="utf-8") as f:
             count  = 0
             for line in f.readlines():
-                #print('filename:',filename)
-                #print('task_idx:',task_idx)
-                #print('count:',count)
+                if line.strip() == '':
+                    continue
                 n, t = line.strip('\n').split('|')
+                '''
                 if count<num_subtask_training_data:
                     name_tr[count][task_idx] = n
                     text_tr[count][task_idx] = t
-                    count+=1
                 elif count<num_subtask_training_data + num_subtask_testing_data:
                     name_te[count-num_subtask_training_data][task_idx] = n
                     text_te[count-num_subtask_training_data][task_idx] = t
-                    count+=1
                 else:
                     break
+                '''
+                name_dict[speaker]['full'].append(n)
+                text_dict[speaker]['full'].append(t)
+                count+=1
+        split = round(count*(1-hp.meta_testing_ratio))
+        name_dict[speaker]['tr'] = name_dict[speaker]['full'][:split]
+        name_dict[speaker]['te'] = name_dict[speaker]['full'][split:]
+        text_dict[speaker]['tr'] = text_dict[speaker]['full'][:split]
+        text_dict[speaker]['te'] = text_dict[speaker]['full'][split:]
+        del name_dict[speaker]['full']
+        del text_dict[speaker]['full']
+    '''
     #check that there's no None after loading filename
     for i in range(num_subtask_training_data):
         assert not (None in text_tr[i] or None in name_tr[i]) 
     for i in range(num_subtask_testing_data):
         assert not (None in text_te[i] or None in name_te[i])
-    
-    return name_tr, text_tr, name_te, text_te
+    '''
+    #return name_tr, text_tr, name_te, text_te
+    return name_dict, text_dict
 		
 	
 

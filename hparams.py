@@ -124,6 +124,7 @@ num_subtasks_val = len(filelist_val)
 
 num_subtask_training_data = 5      # the num of training data in each subtasks, used to initialize the dataset
 num_subtask_testing_data = 5        # the num of testing data in each subasks
+meta_testing_ratio = 0.2
 
 #parameters for synthesis
 synthesize_speaker_list = ['1116']
