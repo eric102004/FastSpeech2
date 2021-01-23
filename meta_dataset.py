@@ -14,7 +14,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class Dataset(Dataset):
-    def __init__(self, filelist=None ,mode = None, num_subtasks = hparams.num_subtasks_tr, num_subtask_training_data = hparams.num_subtask_training_data, num_subtask_testing_data = hparams.num_subtask_testing_data, sort=True):
+    #def __init__(self, filelist=None ,mode = None, num_subtasks = hparams.num_subtasks_tr, num_subtask_training_data = hparams.num_subtask_training_data, num_subtask_testing_data = hparams.num_subtask_testing_data, sort=True):
+    def __init__(self, filelist=None ,mode = None, num_subtasks = hparams.num_subtasks_tr, meta_testing_ratio=hparams.meta_testing_ratio, sort=True):
         #self.num_subtasks = num_subtasks
         if mode:
             if mode =='train':
@@ -33,15 +34,18 @@ class Dataset(Dataset):
         else:
             raise ValueError('should specify mode or filelist')
 
-        self.num_subtask_training_data = num_subtask_training_data
-        self.num_subtask_testing_data = num_subtask_testing_data
-        self.basename_tr, self.text_tr, self.basename_te, self.text_te = meta_process_meta(self.filelist, self.num_subtasks, self.num_subtask_training_data, self.num_subtask_testing_data)
+        #self.num_subtask_training_data = num_subtask_training_data
+        #self.num_subtask_testing_data = num_subtask_testing_data
+        self.meta_testing_ratio = meta_testing_ratio
+        #self.basename_tr, self.text_tr, self.basename_te, self.text_te = meta_process_meta(self.filelist, self.num_subtasks, self.num_subtask_training_data, self.num_subtask_testing_data)
+        self.basename_dict, self.text_dict = meta_process_meta(self.filelist, self.num_subtasks, self.meta_testing_ratio)
         self.sort = sort
 
     def __len__(self):
         return len(self.text_tr)
 
     def __getitem__(self, idx):
+        '''
         basename_list_tr = self.basename_tr[idx]
         phone_list_tr = [np.array(text_to_sequence(self.text_tr[idx][task], [])) for task in range(self.num_subtasks)]
         sample_list_tr = []
@@ -67,6 +71,34 @@ class Dataset(Dataset):
                       "energy": energy}
             sample_list_tr.append(sample)
         #sample = {'train':[tr_xs,tr_ys], 'test':[tst_xs,tst_ys]}
+        '''
+
+        phone_dict_tr = {}
+        sample_list_tr = []
+        for speaker in self.basename_dict.keys():
+            idx_tr = idx % len(self.basename_dict[speaker]['tr'])
+            phone_dict_tr[speaker] = np.array(text_to_sequence(self.text_dict[speaker]['tr'][idx_tr], []))
+            mel_path = os.path.join(
+                hparams.preprocessed_path, "mel", "{}-mel-{}.npy".format(hparams.dataset, basename_dict[speaker]['tr'][idx_tr]))
+            mel_target = np.load(mel_path)
+            D_path = os.path.join(
+                hparams.preprocessed_path, "alignment", "{}-ali-{}.npy".format(hparams.dataset, basename_dict[speaker]['tr'][idx_tr]))
+            D = np.load(D_path)
+            f0_path = os.path.join(
+                hparams.preprocessed_path, "f0", "{}-f0-{}.npy".format(hparams.dataset, basename_dict[speaker]['tr'][idx_tr]))
+            f0 = np.load(f0_path)
+            energy_path = os.path.join(
+                hparams.preprocessed_path, "energy", "{}-energy-{}.npy".format(hparams.dataset, basename_dict[speaker]['tr'][idx_tr]))
+            energy = np.load(energy_path)
+        
+            sample = {"id": basename_dict[speaker]['tr'][idx_tr],
+                      "text": phone_dict_tr[speaker],
+                      "mel_target": mel_target,
+                      "D": D,
+                      "f0": f0,
+                      "energy": energy}
+            sample_list_tr.append(sample)
+        '''
         #load meta - testing data 
         basename_list_te = self.basename_te[idx]
         phone_list_te = [np.array(text_to_sequence(self.text_te[idx][task], [])) for task in range(self.num_subtasks)]
@@ -96,6 +128,32 @@ class Dataset(Dataset):
         #sample = dict()
         #sample['training'] = sample_list_tr
         #sample['testing'] = sample_list_te
+        '''
+        phone_dict_te = {}
+        sample_list_te = []
+        for speaker in self.basename_dict.keys():
+            idx_te = idx % len(self.basename_dict[speaker]['te'])
+            phone_dict_te[speaker] = np.array(text_to_sequence(self.text_dict[speaker]['te'][idx_te], []))
+            mel_path = os.path.join(
+                hparams.preprocessed_path, "mel", "{}-mel-{}.npy".format(hparams.dataset, basename_dict[speaker]['te'][idx_te]))
+            mel_target = np.load(mel_path)
+            D_path = os.path.join(
+                hparams.preprocessed_path, "alignment", "{}-ali-{}.npy".format(hparams.dataset, basename_dict[speaker]['te'][idx_te]))
+            D = np.load(D_path)
+            f0_path = os.path.join(
+                hparams.preprocessed_path, "f0", "{}-f0-{}.npy".format(hparams.dataset, basename_dict[speaker]['te'][idx_te]))
+            f0 = np.load(f0_path)
+            energy_path = os.path.join(
+                hparams.preprocessed_path, "energy", "{}-energy-{}.npy".format(hparams.dataset, basename_dict[speaker]['te'][idx_te]))
+            energy = np.load(energy_path)
+        
+            sample = {"id": basename_dict[speaker]['te'][idx_te],
+                      "text": phone_dict_te[speaker],
+                      "mel_target": mel_target,
+                      "D": D,
+                      "f0": f0,
+                      "energy": energy}
+            sample_list_te.append(sample)
         return sample_list_tr, sample_list_te
 
     def reprocess(self, batch, cut_list, task):

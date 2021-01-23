@@ -55,7 +55,7 @@ def process_meta(meta_path):
             text.append(t)
         return name, text
 
-def meta_process_meta(meta_file_list, num_subtasks, num_subtask_training_data, num_subtask_testing_data):
+def meta_process_meta(meta_file_list, num_subtasks, meta_testing_ratio):
     '''
     #initializing
     text_tr = [[None for j in range(num_subtasks)] for i in range(num_subtask_training_data)]
@@ -92,7 +92,7 @@ def meta_process_meta(meta_file_list, num_subtasks, num_subtask_training_data, n
                 name_dict[speaker]['full'].append(n)
                 text_dict[speaker]['full'].append(t)
                 count+=1
-        split = round(count*(1-hp.meta_testing_ratio))
+        split = round(count*(1-meta_testing_ratio))
         name_dict[speaker]['tr'] = name_dict[speaker]['full'][:split]
         name_dict[speaker]['te'] = name_dict[speaker]['full'][split:]
         text_dict[speaker]['tr'] = text_dict[speaker]['full'][:split]
