@@ -42,7 +42,10 @@ class Dataset(Dataset):
         self.sort = sort
 
     def __len__(self):
-        return len(self.text_tr)
+        max_len = 0
+        for speaker in self.text_dict.keys():
+            max_len = max(max_len , len(self.text_dict[speaker]['tr']))
+        return max_len
 
     def __getitem__(self, idx):
         '''
@@ -79,19 +82,19 @@ class Dataset(Dataset):
             idx_tr = idx % len(self.basename_dict[speaker]['tr'])
             phone_dict_tr[speaker] = np.array(text_to_sequence(self.text_dict[speaker]['tr'][idx_tr], []))
             mel_path = os.path.join(
-                hparams.preprocessed_path, "mel", "{}-mel-{}.npy".format(hparams.dataset, basename_dict[speaker]['tr'][idx_tr]))
+                hparams.preprocessed_path, "mel", "{}-mel-{}.npy".format(hparams.dataset, self.basename_dict[speaker]['tr'][idx_tr]))
             mel_target = np.load(mel_path)
             D_path = os.path.join(
-                hparams.preprocessed_path, "alignment", "{}-ali-{}.npy".format(hparams.dataset, basename_dict[speaker]['tr'][idx_tr]))
+                hparams.preprocessed_path, "alignment", "{}-ali-{}.npy".format(hparams.dataset, self.basename_dict[speaker]['tr'][idx_tr]))
             D = np.load(D_path)
             f0_path = os.path.join(
-                hparams.preprocessed_path, "f0", "{}-f0-{}.npy".format(hparams.dataset, basename_dict[speaker]['tr'][idx_tr]))
+                hparams.preprocessed_path, "f0", "{}-f0-{}.npy".format(hparams.dataset, self.basename_dict[speaker]['tr'][idx_tr]))
             f0 = np.load(f0_path)
             energy_path = os.path.join(
-                hparams.preprocessed_path, "energy", "{}-energy-{}.npy".format(hparams.dataset, basename_dict[speaker]['tr'][idx_tr]))
+                hparams.preprocessed_path, "energy", "{}-energy-{}.npy".format(hparams.dataset, self.basename_dict[speaker]['tr'][idx_tr]))
             energy = np.load(energy_path)
         
-            sample = {"id": basename_dict[speaker]['tr'][idx_tr],
+            sample = {"id": self.basename_dict[speaker]['tr'][idx_tr],
                       "text": phone_dict_tr[speaker],
                       "mel_target": mel_target,
                       "D": D,
@@ -135,19 +138,19 @@ class Dataset(Dataset):
             idx_te = idx % len(self.basename_dict[speaker]['te'])
             phone_dict_te[speaker] = np.array(text_to_sequence(self.text_dict[speaker]['te'][idx_te], []))
             mel_path = os.path.join(
-                hparams.preprocessed_path, "mel", "{}-mel-{}.npy".format(hparams.dataset, basename_dict[speaker]['te'][idx_te]))
+                hparams.preprocessed_path, "mel", "{}-mel-{}.npy".format(hparams.dataset, self.basename_dict[speaker]['te'][idx_te]))
             mel_target = np.load(mel_path)
             D_path = os.path.join(
-                hparams.preprocessed_path, "alignment", "{}-ali-{}.npy".format(hparams.dataset, basename_dict[speaker]['te'][idx_te]))
+                hparams.preprocessed_path, "alignment", "{}-ali-{}.npy".format(hparams.dataset, self.basename_dict[speaker]['te'][idx_te]))
             D = np.load(D_path)
             f0_path = os.path.join(
-                hparams.preprocessed_path, "f0", "{}-f0-{}.npy".format(hparams.dataset, basename_dict[speaker]['te'][idx_te]))
+                hparams.preprocessed_path, "f0", "{}-f0-{}.npy".format(hparams.dataset, self.basename_dict[speaker]['te'][idx_te]))
             f0 = np.load(f0_path)
             energy_path = os.path.join(
-                hparams.preprocessed_path, "energy", "{}-energy-{}.npy".format(hparams.dataset, basename_dict[speaker]['te'][idx_te]))
+                hparams.preprocessed_path, "energy", "{}-energy-{}.npy".format(hparams.dataset, self.basename_dict[speaker]['te'][idx_te]))
             energy = np.load(energy_path)
         
-            sample = {"id": basename_dict[speaker]['te'][idx_te],
+            sample = {"id": self.basename_dict[speaker]['te'][idx_te],
                       "text": phone_dict_te[speaker],
                       "mel_target": mel_target,
                       "D": D,
@@ -237,7 +240,7 @@ if __name__ == "__main__":
     # Test
     # Test
     
-    dataset = Dataset(mode = 'train', num_subtasks = 5, num_subtask_training_data = 3, num_subtask_testing_data = 3)
+    dataset = Dataset(mode = 'train', num_subtasks = 5, meta_testing_ratio= hparams.meta_testing_ratio)
     print("filelist:", dataset.filelist)
     training_loader = DataLoader(dataset, batch_size=3, shuffle=False, collate_fn=dataset.collate_fn,
         drop_last=True, num_workers=0)
