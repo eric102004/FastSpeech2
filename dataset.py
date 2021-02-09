@@ -7,19 +7,27 @@ import os
 
 import hparams
 import audio as Audio
-from utils import pad_1D, pad_2D, process_meta
+from utils import pad_1D, pad_2D, process_meta, multi_process_meta
 from text import text_to_sequence, sequence_to_text
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class Dataset(Dataset):
-    def __init__(self, filename="train.txt", sort=True):
-        self.basename, self.text = process_meta(os.path.join(hparams.preprocessed_path, filename))
+    def __init__(self, filename="train.txt", sort=True, few_shot=None):
+        if type(filename)==list:
+            self.basename, self.text = multi_process_meta(filename)
+        else:
+            self.basename, self.text = process_meta(os.path.join(hparams.preprocessed_path, filename))
         self.sort = sort
+        assert((few_shot==None) or (isinstance(few_shot,int)))
+        self.few_shot = few_shot
 
     def __len__(self):
-        return len(self.text)
+        if self.few_shot==None:
+            return len(self.text)
+        else:
+            return min(len(self.text), self.few_shot)
 
     def __getitem__(self, idx):
         basename = self.basename[idx]

@@ -7,17 +7,25 @@ import re
 from string import punctuation
 from g2p_en import G2p
 
-from fastspeech2 import FastSpeech2
+
 from text import text_to_sequence, sequence_to_text
 import hparams as hp
 import utils
 import audio as Audio
+
+if hp.model_mode == 'meta':
+    from fastspeech2 import FastSpeech2
+elif hp.model_mode == 'baseline':
+    from fastspeech2_emb import FastSpeech2
+else:
+    raise ValueError('model_mode should be meta or baseline')
 
 #import the modules needed for fine-tuning
 from torch.utils.data import DataLoader
 from loss import FastSpeech2Loss
 from dataset import Dataset
 from optimizer import ScheduledOptim
+from torch.utils.tensorboard import SummaryWriter
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -38,18 +46,62 @@ def preprocess(text):
 
     return torch.from_numpy(sequence).long().to(device)
 
-def get_and_fine_tune_FastSpeech2(num, loader):
-    checkpoint_path = os.path.join(hp.checkpoint_path, "checkpoint_{}.pth.tar".format(num))
+def get_and_fine_tune_FastSpeech2(num, loader, speaker):
+    # makedir
+    if not os.path.exists(os.path.join(hp.test_path, speaker)):
+        os.makedirs(os.path.join(hp.test_path, speaker))
+        os.makedirs(os.path.join(hp.test_path, speaker, 'train'))
+
+    # init logger
+    print('initing logger...')
+    train_logger = SummaryWriter(os.path.join(hp.test_path, speaker, 'train'))
+
+
+    if hp.exp_name in hp.exp_set:
+        checkpoint_path = os.path.join(hp.checkpoint_path,hp.exp_name,"checkpoint_{}.pth.tar".format(num))
+        print(f'load model in exp:{hp.exp_name}, step:{num}')
+    else:
+        checkpoint_path = os.path.join(hp.checkpoint_path, "checkpoint_{}.pth.tar".format(num))
     #model = nn.DataParallel(FastSpeech2())
-    model = FastSpeech2().to(device)
-    model.load_state_dict(torch.load(checkpoint_path)['model'])
+    if hp.model_mode =='meta':
+        model = FastSpeech2().to(device)
+        try:
+            model.load_state_dict(torch.load(checkpoint_path)['model'])
+        except:
+            try:
+                ckpt = torch.load(checkpoint_path)['model']
+                for n, p in ckpt.items():
+                    if n[7:] not in model.state_dict():
+                        print('not in meta_model:', n)
+                        continue
+                    if n[7:10]=='emb' and hp.use_pretrained_emb==False:
+                        continue
+                    if isinstance(p, nn.parameter.Parameter):
+                        p = p.data
+                    model.state_dict()[n[7:]].copy_(p)
+            except:
+                raise RuntimeError('Failed to load model')
+
+    else:
+        model = FastSpeech2(n_spkers=1).to(device)
+        ckpt = torch.load(checkpoint_path)['model']
+        for n, p in ckpt.items():
+            if n[7:] not in model.state_dict():
+                print('not in meta_model:', n)
+                continue
+            if n[7:10]=='emb' and hp.use_pretrained_emb==False:
+                continue
+            if isinstance(p, nn.parameter.Parameter):
+                p = p.data
+            model.state_dict()[n[7:]].copy_(p)
+        
     #model.requires_grad = False
     #model.eval()
 
     #fine-tuning
     #optimizer and loss
     optimizer = torch.optim.Adam(model.parameters(), betas=hp.betas, eps=hp.eps, weight_decay = hp.weight_decay)
-    scheduled_optim = ScheduledOptim(optimizer, hp.decoder_hidden, hp.n_warm_up_step, args.restore_step)
+    scheduled_optim = ScheduledOptim(optimizer, hp.decoder_hidden, hp.n_warm_up_step, args.step)
     Loss = FastSpeech2Loss().to(device)
 
     #fine-tuning
@@ -58,9 +110,15 @@ def get_and_fine_tune_FastSpeech2(num, loader):
     #check grad
     for n,p in model.named_parameters():
         #print(n, p.requires_grad)
+        '''
         if n[:3] !='var':
             p.requires_grad = False
+        '''
+        if n[:3] not in hp.fine_tune_model_set or n[8:11]=='pos':
+            p.requires_grad = False
+        print(n, p.requires_grad)
     current_step = 0
+    break_sig = False
     while current_step < hp.syn_fine_tune_step:
         for i,batchs in enumerate(loader):
             for j, data_of_batch in enumerate(batchs):
@@ -77,13 +135,23 @@ def get_and_fine_tune_FastSpeech2(num, loader):
                 max_mel_len = np.max(data_of_batch["mel_len"]).astype(np.int32)
                
                 # Forward
-                mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ = model(
-                    text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len)
-                
+                if hp.model_mode=='baseline' and hp.use_spk_embed:
+                    spk_ids = torch.tensor([0]*hp.syn_fine_tune_batch_size).type(torch.int64).to(device)
+                    mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ = model(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids = spk_ids)
+                else:
+                    mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ = model(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len)
+
                 # Cal Loss
                 mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = Loss(
                         log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
-                total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss 
+                total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
+
+                train_logger.add_scalar('Loss/total_loss', total_loss, current_step)
+                train_logger.add_scalar('Loss/mel_loss', mel_loss, current_step)
+                train_logger.add_scalar('Loss/mel_postnet_loss', mel_postnet_loss, current_step)
+                train_logger.add_scalar('Loss/duration_loss', d_loss, current_step)
+                train_logger.add_scalar('Loss/F0_loss', f_loss, current_step)
+                train_logger.add_scalar('Loss/energy_loss', e_loss, current_step)
                
                 # print loss
                 if (current_step+1)%10==0:
@@ -102,6 +170,10 @@ def get_and_fine_tune_FastSpeech2(num, loader):
                 scheduled_optim.zero_grad()
                 
                 current_step +=1
+                if current_step>=hp.syn_fine_tune_step:
+                    break_sig=True
+                    break
+            if break_sig: break
 
     print('finish fine-tuning...')
     model.requires_grad = False
@@ -122,8 +194,6 @@ def synthesize(model, waveglow, melgan, text, sentence, speaker, prefix=''):
     f0_output = f0_output[0].detach().cpu().numpy()
     energy_output = energy_output[0].detach().cpu().numpy()
 
-    if not os.path.exists(os.path.join(hp.test_path, speaker)):
-        os.makedirs(os.path.join(hp.test_path, speaker))
 
     Audio.tools.inv_mel_spec(mel_postnet, os.path.join(hp.test_path, speaker,'{}_griffin_lim_{}.wav'.format(prefix, sentence)))
     if waveglow is not None:
@@ -138,29 +208,30 @@ if __name__ == "__main__":
     # Test
     parser = argparse.ArgumentParser()
     parser.add_argument('--step', type=int, default=30000)
-    parser.add_argument('--restore_step',type=int, default=0)
+    parser.add_argument('--shot', type=int, default=1000)
     args = parser.parse_args()
-    
-    sentences = [
-        "Advanced text to speech models such as Fast Speech can synthesize speech significantly faster than previous auto regressive models with comparable quality. The training of Fast Speech model relies on an auto regressive teacher model for duration prediction and knowledge distillation, which can ease the one to many mapping problem in T T S. However, Fast Speech has several disadvantages, 1, the teacher student distillation pipeline is complicated, 2, the duration extracted from the teacher model is not accurate enough, and the target mel spectrograms distilled from teacher model suffer from information loss due to data simplification, both of which limit the voice quality.",
-        "Printing, in the only sense with which we are at present concerned, differs from most if not from all the arts and crafts represented in the Exhibition",
-        "in being comparatively modern.",
-        "For although the Chinese took impressions from wood blocks engraved in relief for centuries before the woodcutters of the Netherlands, by a similar process",
-        "produced the block books, which were the immediate predecessors of the true printed book,",
-        "the invention of movable metal letters in the middle of the fifteenth century may justly be considered as the invention of the art of printing.",
-        "And it is worth mention in passing that, as an example of fine typography,",
-        "the earliest book printed with movable types, the Gutenberg, or \"forty-two line Bible\" of about 1455,",
-        "has never been surpassed.",
-        "Printing, then, for our purpose, may be considered as the art of making books by means of movable types.",
-        "Now, as all books not primarily intended as picture-books consist principally of types composed to form letterpress,"
+    assert(hp.model_mode in ['baseline','meta'])
+    sentences = ["Weather forecast for tonight: dark.",
+            "I put a dollar in a change machine. Nothing changed.",
+            "“No comment” is a comment.",
+            "So far, this is the oldest I’ve been.",
+            "I am in shape. Round is a shape."
         ]
-
+    '''
+    sentences = ["Maximilian.",
+            "Villefort rose, half ashamed of being surprised in such a paroxysm of grief.",
+            "The terrible office he had held for twenty-five years had succeeded in making him more or less than man.",
+            "His glance, at first wandering, fixed itself upon Morrel.",
+            "\"Go!--do you hear?\" said Villefort, while d'Avrigny advanced to lead Morrel out."
+        ]
+    '''
     syn_speaker_list = hp.synthesize_speaker_list
     for speaker in syn_speaker_list:
         print(f'fine-tuning on speaker:{speaker}')
-        dataset = Dataset(f'{speaker}.txt')
-        loader = DataLoader(dataset, batch_size=hp.batch_size**2, shuffle=True, collate_fn=dataset.collate_fn, drop_last=True, num_workers=0)
-        model = get_and_fine_tune_FastSpeech2(args.step, loader).to(device)
+        dataset = Dataset(f'{speaker}.txt', few_shot=args.shot)
+        batch_size = min(args.shot, hp.syn_fine_tune_batch_size**2)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=dataset.collate_fn, drop_last=True, num_workers=0)
+        model = get_and_fine_tune_FastSpeech2(args.step, loader, speaker).to(device)
         melgan = waveglow = None
         if hp.vocoder == 'melgan':
             melgan = utils.get_melgan()

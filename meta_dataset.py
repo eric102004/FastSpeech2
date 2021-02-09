@@ -10,42 +10,47 @@ import audio as Audio
 from utils import pad_1D, pad_2D, meta_process_meta
 from text import text_to_sequence, sequence_to_text
 
+import random
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class Dataset(Dataset):
     #def __init__(self, filelist=None ,mode = None, num_subtasks = hparams.num_subtasks_tr, num_subtask_training_data = hparams.num_subtask_training_data, num_subtask_testing_data = hparams.num_subtask_testing_data, sort=True):
     def __init__(self, filelist=None ,mode = None, num_subtasks = hparams.num_subtasks_tr, meta_testing_ratio=hparams.meta_testing_ratio, sort=True):
-        #self.num_subtasks = num_subtasks
+        self.num_subtasks = num_subtasks
         if mode:
             if mode =='train':
                 #self.filelist = [f"train_{i}.txt" for i in range(1,self.num_subtasks+1)]
-                self.filelist = hparams.filelist_tr
-                self.num_subtasks = len(self.filelist)
+                self.source_filelist = hparams.filelist_tr
             elif mode =='val':
                 #self.filelist = [f"val_{i}.txt" for i in range(1, self.num_subtasks+1)]
-                self.filelist = hparams.filelist_val
-                self.num_subtasks = len(self.filelist)
+                self.source_filelist = hparams.filelist_val
             else:
                 raise ValueError("mode should be train or val")
         elif filelist:
-            self.filelist = filelist
-            self.num_subtasks = len(self.filelist)
+            self.source_filelist = filelist
         else:
             raise ValueError('should specify mode or filelist')
 
-        #self.num_subtask_training_data = num_subtask_training_data
-        #self.num_subtask_testing_data = num_subtask_testing_data
         self.meta_testing_ratio = meta_testing_ratio
-        #self.basename_tr, self.text_tr, self.basename_te, self.text_te = meta_process_meta(self.filelist, self.num_subtasks, self.num_subtask_training_data, self.num_subtask_testing_data)
-        self.basename_dict, self.text_dict = meta_process_meta(self.filelist, self.num_subtasks, self.meta_testing_ratio)
+        #get initial filelist
+        self.basename_dict, self.text_dict = meta_process_meta(self.source_filelist, len(self.source_filelist), self.meta_testing_ratio)
+        self.file_pin = 0
+        self.shuffle_filelist()
+
+        #self.basename_dict, self.text_dict = meta_process_meta(self.filelist, self.num_subtasks, self.meta_testing_ratio)
         self.sort = sort
+        
+        
 
     def __len__(self):
+        '''
         max_len = 0
         for speaker in self.text_dict.keys():
             max_len = max(max_len , len(self.text_dict[speaker]['tr']))
-        return max_len
+        '''
+        return 458
 
     def __getitem__(self, idx):
         '''
@@ -78,7 +83,8 @@ class Dataset(Dataset):
 
         phone_dict_tr = {}
         sample_list_tr = []
-        for speaker in self.basename_dict.keys():
+        for filename in self.filelist:
+            speaker = filename[:-4]
             idx_tr = idx % len(self.basename_dict[speaker]['tr'])
             phone_dict_tr[speaker] = np.array(text_to_sequence(self.text_dict[speaker]['tr'][idx_tr], []))
             mel_path = os.path.join(
@@ -134,7 +140,8 @@ class Dataset(Dataset):
         '''
         phone_dict_te = {}
         sample_list_te = []
-        for speaker in self.basename_dict.keys():
+        for filename in self.filelist:
+            speaker = filename[:-4]
             idx_te = idx % len(self.basename_dict[speaker]['te'])
             phone_dict_te[speaker] = np.array(text_to_sequence(self.text_dict[speaker]['te'][idx_te], []))
             mel_path = os.path.join(
@@ -235,6 +242,15 @@ class Dataset(Dataset):
             output_list_te.append(output)
 
         return output_list_tr, output_list_te
+
+    def shuffle_filelist(self):
+        if self.file_pin+ self.num_subtasks > len(self.source_filelist):
+            random.shuffle(self.source_filelist)
+            self.file_pin=0
+        #self.filelist = random.sample(self.source_filelist, self.num_subtasks)
+        self.filelist = self.source_filelist[self.file_pin:self.file_pin+self.num_subtasks]
+        self.file_pin += self.num_subtasks
+        #self.basename_dict, self.text_dict = meta_process_meta(self.filelist, self.num_subtasks, self.meta_testing_ratio)
 
 if __name__ == "__main__":
     # Test

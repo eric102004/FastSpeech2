@@ -55,6 +55,19 @@ def process_meta(meta_path):
             text.append(t)
         return name, text
 
+def multi_process_meta(meta_file_list):
+    text = []
+    name = []
+    for filename in meta_file_list:
+        filepath = os.path.join(hp.preprocessed_path, filename)
+        with open(filepath, "r", encoding='utf-8') as f:
+            for line in f.readlines():
+                n,t = line.strip('\n').split('|')
+                name.append(n)
+                text.append(t)
+    return name, text
+    
+
 def meta_process_meta(meta_file_list, num_subtasks, meta_testing_ratio):
     '''
     #initializing
@@ -74,7 +87,7 @@ def meta_process_meta(meta_file_list, num_subtasks, meta_testing_ratio):
         name_dict[speaker]['full'] = []
         filepath = os.path.join(hp.preprocessed_path, filename)
         with open(filepath, "r", encoding="utf-8") as f:
-            count  = 0
+            count=0
             for line in f.readlines():
                 if line.strip() == '':
                     continue
@@ -92,11 +105,20 @@ def meta_process_meta(meta_file_list, num_subtasks, meta_testing_ratio):
                 name_dict[speaker]['full'].append(n)
                 text_dict[speaker]['full'].append(t)
                 count+=1
-        split = round(count*(1-meta_testing_ratio))
+
+        #print(speaker,len(name_dict[speaker]['full']))
+
+        assert(len(name_dict[speaker]['full'])>0)
+        assert(len(text_dict[speaker]['full'])>0)
+        split = min(int(count*(1-meta_testing_ratio)),count-1)
         name_dict[speaker]['tr'] = name_dict[speaker]['full'][:split]
         name_dict[speaker]['te'] = name_dict[speaker]['full'][split:]
         text_dict[speaker]['tr'] = text_dict[speaker]['full'][:split]
         text_dict[speaker]['te'] = text_dict[speaker]['full'][split:]
+        assert(len(name_dict[speaker]['tr'])>0)
+        assert(len(name_dict[speaker]['te'])>0)
+        assert(len(text_dict[speaker]['tr'])>0)
+        assert(len(text_dict[speaker]['te'])>0)
         del name_dict[speaker]['full']
         del text_dict[speaker]['full']
     '''

@@ -93,47 +93,57 @@ def build_from_path_meta(in_dir, out_dir):
     f0_max = energy_max = 0
     f0_min = energy_min = 1000000
     n_frames = 0
-    with open(os.path.join(in_dir, 'metadata.csv'), encoding='utf-8') as f:  #chane
-        for line in f:
-            parts = line.strip().split('|')
-            speaker = parts[0]
-            speaker_sub = parts[1]
-            basename = parts[2]
-            text = parts[3]
+    for suffix in ['_dev','']:
+        if suffix=='_dev':
+            print('processing dev set')
+        elif suffix=='':
+            print('processing training set')
+        with open(os.path.join(in_dir, f'metadata{suffix}.csv'), encoding='utf-8') as f:  #chane
+            for line in f:
+                parts = line.strip().split('|')
+                speaker = parts[0]
+                speaker_sub = parts[1]
+                basename = parts[2]
+                text = parts[3]
 
-            try:
-                ret = process_utterance(in_dir, out_dir, speaker, speaker_sub, basename)     #把此行寫進下六行的if內
-            except:
-                ret = None
-                print('error file:',speaker, speaker_sub, basename)
-            if ret is None:
-                continue
-            else:
-                info, f_max, f_min, e_max, e_min, n = ret
-            #added by eric
-           
-            if speaker+'.txt' in hp.filelist_tr:
-                if speaker not in train.keys():
-                    train[speaker] = []
-                train[speaker].append(info)
-            elif speaker+'.txt' in hp.filelist_val:
-                if speaker not in val.keys():
-                    val[speaker] = []
-                val[speaker].append(info)
-            else:
-                print('not in the filelist!' + '\n')
-                continue
-                
+                #try:
+                if True:
+                    if suffix=='':
+                        ret = process_utterance(in_dir, out_dir, speaker, speaker_sub, basename, dir_name='train-clean-100')
+                    elif suffix=='_dev':
+                        ret = process_utterance(in_dir, out_dir, speaker, speaker_sub, basename, dir_name='dev-clean')
+                #except:
+                else:
+                    ret = None
+                    print('error file:',speaker, speaker_sub, basename)
+                if ret is None:
+                    continue
+                else:
+                    info, f_max, f_min, e_max, e_min, n = ret
+                #added by eric
+               
+                if speaker+'.txt' in hp.filelist_tr:
+                    if speaker not in train.keys():
+                        train[speaker] = []
+                    train[speaker].append(info)
+                elif speaker+'.txt' in hp.filelist_val:
+                    if speaker not in val.keys():
+                        val[speaker] = []
+                    val[speaker].append(info)
+                else:
+                    print('not in the filelist!' + '\n')
+                    continue
+                    
 
-            if index % 100 == 0:
-                print("#files done %d" % index)
-            index = index + 1
+                if index % 100 == 0:
+                    print("#files done %d" % index)
+                index = index + 1
 
-            f0_max = max(f0_max, f_max)
-            f0_min = min(f0_min, f_min)
-            energy_max = max(energy_max, e_max)
-            energy_min = min(energy_min, e_min)
-            n_frames += n
+                f0_max = max(f0_max, f_max)
+                f0_min = min(f0_min, f_min)
+                energy_max = max(energy_max, e_max)
+                energy_min = min(energy_min, e_min)
+                n_frames += n
     
     with open(os.path.join(out_dir, 'stat.txt'), 'w', encoding='utf-8') as f:     
         strs = ['Total time: {} hours'.format(n_frames*hp.hop_length/hp.sampling_rate/3600),
@@ -153,12 +163,17 @@ def build_from_path_meta(in_dir, out_dir):
         val[s] = [r for r in val[s] if r is not None]
     return train, val
 
-def process_utterance(in_dir, out_dir, speaker, speaker_sub, basename):
-    wav_path = os.path.join(in_dir, 'train-clean-100', speaker, speaker_sub, '{}.wav'.format(basename))   #更改wav_path
+def process_utterance(in_dir, out_dir, speaker, speaker_sub, basename, dir_name='train-clean-100'):
+    #wav_path = os.path.join(in_dir, 'train-clean-100', speaker, speaker_sub, '{}.wav'.format(basename))
+    wav_path = os.path.join(in_dir, dir_name, speaker, speaker_sub, '{}.wav'.format(basename))
     tg_path = os.path.join(out_dir, 'TextGrid', speaker, speaker_sub, '{}.TextGrid'.format(basename)) #更改tg_path(做新的textgrid)
     
     # Get alignments
-    textgrid = tgt.io.read_textgrid(tg_path)
+    try:
+        textgrid = tgt.io.read_textgrid(tg_path)
+    except:
+        print('no textgrid file')
+        return None
     phone, duration, start, end = get_alignment(textgrid.get_tier_by_name('phones'))
     '''
     print("basename:",basename)

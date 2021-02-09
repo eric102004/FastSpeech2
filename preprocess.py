@@ -56,6 +56,7 @@ def main():
     in_dir = hp.data_path
     out_dir = hp.preprocessed_path
     mel_out_dir = os.path.join(out_dir, "mel")
+    print('exp_mode:',exp_mode)
     if not os.path.exists(mel_out_dir):
         os.makedirs(mel_out_dir, exist_ok=True)
     ali_out_dir = os.path.join(out_dir, "alignment")

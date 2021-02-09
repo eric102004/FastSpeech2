@@ -33,8 +33,39 @@ def preprocess(text):
 
 def get_FastSpeech2(num):
     checkpoint_path = os.path.join(hp.checkpoint_path, "checkpoint_{}.pth.tar".format(num))
-    model = nn.DataParallel(FastSpeech2())
-    model.load_state_dict(torch.load(checkpoint_path)['model'])
+    #model = nn.DataParallel(FastSpeech2())
+    if hp.model_mode=='meta':
+        model = FastSpeech2().to(device)
+        try:
+            model.load_state_dict(torch.load(checkpoint_path)['model'])
+        except:
+            try:
+                ckpt = torch.load(checkpoint_path)['model']
+                for n, p in ckpt.items():
+                    if n[7:] not in model.state_dict():
+                        print('not in meta_model:', n)
+                        continue
+                    if n[7:10]=='emb' and hp.use_pretrained_emb==False:
+                        continue
+                    if isinstance(p, nn.parameter.Parameter):
+                        p = p.data
+                    model.state_dict()[n[7:]].copy_(p)
+            except:
+                raise RuntimeError('Failed to load model')
+
+    elif hp.model_mode=='baseline':
+        model = FastSpeech2(n_spkers=1).to(device)
+        ckpt = torch.load(checkpoint_path)['model']
+        for n, p in ckpt.items():
+            if n[7:] not in model.state_dict():
+                print('not in meta_model:', n)
+                continue
+            if n[7:10]=='emb' and hp.use_pretrained_emb==False:
+                continue
+            if isinstance(p, nn.parameter.Parameter):
+                p = p.data
+            model.state_dict()[n[7:]].copy_(p)
+
     model.requires_grad = False
     model.eval()
     return model
@@ -70,7 +101,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--step', type=int, default=30000)
     args = parser.parse_args()
-    
+    '''
     sentences = [
         "Advanced text to speech models such as Fast Speech can synthesize speech significantly faster than previous auto regressive models with comparable quality. The training of Fast Speech model relies on an auto regressive teacher model for duration prediction and knowledge distillation, which can ease the one to many mapping problem in T T S. However, Fast Speech has several disadvantages, 1, the teacher student distillation pipeline is complicated, 2, the duration extracted from the teacher model is not accurate enough, and the target mel spectrograms distilled from teacher model suffer from information loss due to data simplification, both of which limit the voice quality.",
         "Printing, in the only sense with which we are at present concerned, differs from most if not from all the arts and crafts represented in the Exhibition",
@@ -84,7 +115,13 @@ if __name__ == "__main__":
         "Printing, then, for our purpose, may be considered as the art of making books by means of movable types.",
         "Now, as all books not primarily intended as picture-books consist principally of types composed to form letterpress,"
         ]
-
+    '''
+    sentences = ["Weather forecast for tonight: dark.",
+            "I put a dollar in a change machine. Nothing changed.",
+            "“No comment” is a comment.",
+            "So far, this is the oldest I’ve been.",
+            "I am in shape. Round is a shape."
+        ]
     model = get_FastSpeech2(args.step).to(device)
     melgan = waveglow = None
     if hp.vocoder == 'melgan':

@@ -30,8 +30,9 @@ def evaluate(model, step, vocoder=None):
     torch.manual_seed(0)
     
     # Get dataset
-    dataset = Dataset("val.txt", sort=False)
-    loader = DataLoader(dataset, batch_size=hp.batch_size**2, shuffle=False, collate_fn=dataset.collate_fn, drop_last=False, num_workers=0, )
+    #dataset = Dataset("val.txt", sort=False)
+    dataset = Dataset(hp.filelist_val, sort=False)
+    loader = DataLoader(dataset, batch_size=hp.batch_size**2, shuffle=True, collate_fn=dataset.collate_fn, drop_last=False, num_workers=0, )
     
     # Get loss function
     Loss = FastSpeech2Loss().to(device)
@@ -44,6 +45,7 @@ def evaluate(model, step, vocoder=None):
     mel_p_l = []
     current_step = 0
     idx = 0
+    sig = False
     for i, batchs in enumerate(loader):
         for j, data_of_batch in enumerate(batchs):
             # Get Data
@@ -105,7 +107,12 @@ def evaluate(model, step, vocoder=None):
                             ['Synthesized Spectrogram', 'Ground-Truth Spectrogram'], filename=os.path.join(hp.eval_path, 'eval_{}.png'.format(basename)))
                         idx += 1
                 
-            current_step += 1            
+            current_step += 1
+            if current_step >= hp.num_eval_data:
+                sig=True
+                break
+        if sig:
+            break
 
     d_l = sum(d_l) / len(d_l)
     f_l = sum(f_l) / len(f_l)

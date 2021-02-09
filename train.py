@@ -30,7 +30,8 @@ def main(args):
     
     # Get dataset
     print("loading dataset...\n")
-    dataset = Dataset("train.txt") 
+    #dataset = Dataset("train.txt") 
+    dataset = Dataset(hp.filelist_tr) 
     loader = DataLoader(dataset, batch_size=hp.batch_size**2, shuffle=True, 
         collate_fn=dataset.collate_fn, drop_last=True, num_workers=0)
 
@@ -48,18 +49,39 @@ def main(args):
     print("Optimizer and Loss Function Defined.")
 
     # Load checkpoint if exists
-    checkpoint_path = os.path.join(hp.checkpoint_path)
-    try:
-        checkpoint = torch.load(os.path.join(
-            checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
-        model.load_state_dict(checkpoint['model'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
+    if hp.exp_name in hp.exp_set:
+        checkpoint_path = os.path.join(hp.checkpoint_path, hp.exp_name)
+        if not os.path.exists(checkpoint_path):
+            os.makedirs(checkpoint_path)
+    else:
+        checkpoint_path = hp.checkpoint_path
+    if args.restore_step!=0:
+        if hp.exp_name in hp.exp_set:
+            try:
+                checkpoint = torch.load(os.path.join(
+                    checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
+            except:
+                checkpoint = torch.load(os.path.join(
+                    hp.checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
+        else:        
+            checkpoint = torch.load(os.path.join(
+                checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
+        try:
+            model.load_state_dict(checkpoint['model'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+        except:
+            for n, p in checkpoint['model'].items():
+                if n[7:] not in model.state_dict():
+                    print('not in meta_model:', n)
+                    continue
+                if isinstance(p, nn.parameter.Parameter):
+                    p = p.data
+                model.state_dict()[n[7:]].copy_(p)
         print("\n---Model Restored at Step {}---\n".format(args.restore_step))
-    except:
+    else:
         print("\n---Start New Training---\n")
         if not os.path.exists(checkpoint_path):
             os.makedirs(checkpoint_path)
-
     # Load vocoder
     if hp.vocoder == 'melgan':
         melgan = utils.get_melgan()
@@ -69,7 +91,10 @@ def main(args):
         waveglow.to(device)
 
     # Init logger
-    log_path = hp.log_path
+    if hp.exp_name in hp.exp_set:
+        log_path = os.path.join(hp.log_path, hp.exp_name)
+    else:
+        log_path = hp.log_path
     if not os.path.exists(log_path):
         os.makedirs(log_path)
         os.makedirs(os.path.join(log_path, 'train'))
@@ -78,7 +103,10 @@ def main(args):
     val_logger = SummaryWriter(os.path.join(log_path, 'validation'))
 
     # Init synthesis directory
-    synth_path = hp.synth_path
+    if hp.exp_name in hp.exp_set:
+        synth_path = os.path.join(hp.synth_path, hp.exp_name)
+    else:
+        synth_path = hp.synth_path
     if not os.path.exists(synth_path):
         os.makedirs(synth_path)
 

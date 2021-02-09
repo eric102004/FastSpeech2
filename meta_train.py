@@ -15,12 +15,15 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import os
 
-from fastspeech2 import FastSpeech2
 from loss import FastSpeech2Loss
 from meta_dataset import Dataset
 from optimizer import ScheduledOptim
 from evaluate import evaluate
 import hparams as hp
+if hp.use_spk_embed:
+    from fastspeech2_emb import FastSpeech2
+else:
+    from fastspeech2 import FastSpeech2
 import utils
 import audio as Audio
 
@@ -65,8 +68,13 @@ class Task:
         mel_len = torch.from_numpy(self.sample_tr['mel_len']).long().to(self.device)
         max_src_len = np.max(self.sample_tr['src_len']).astype(np.int32)
         max_mel_len = np.max(self.sample_tr['mel_len']).astype(np.int32)
+
         #forward
-        mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params=params)
+        if hp.use_spk_embed:
+            speaker_ids = torch.tensor([0]*self.batch_size).type(torch.int64).to(device)
+            mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids=speaker_ids, params=params)
+        else:
+            mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params=params)
         #cal loss
         mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
         total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
@@ -87,7 +95,11 @@ class Task:
         max_src_len = np.max(self.sample_te['src_len']).astype(np.int32)
         max_mel_len = np.max(self.sample_te['mel_len']).astype(np.int32)
         #forward
-        mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params = params)
+        if hp.use_spk_embed:
+            speaker_ids = torch.tensor([0]*self.batch_size).type(torch.int64).to(device)
+            mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids=speaker_ids, params = params)
+        else:
+            mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params = params)
         #cal loss
         mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
         val_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
@@ -134,18 +146,21 @@ def main(args):
     
     #dataset and dataloader
     print("setting up dataset and dataloader...")
-    print("meta_train")
+    #print("meta_train")
     dataset = Dataset(filelist=hp.filelist_tr, mode='train', num_subtasks=hp.num_subtasks_tr, meta_testing_ratio = hp.meta_testing_ratio)
     dataloader = DataLoader(dataset, batch_size = hp.batch_size, shuffle=True, collate_fn=dataset.collate_fn, drop_last= True, num_workers=0)
-    print("meta-training data file list:", dataset.filelist)
-    print('meta_test')
+    #print("meta-training data file list:", dataset.filelist)
+    #print('meta_test')
     test_dataset = Dataset(filelist=hp.filelist_val, mode='val', num_subtasks=hp.num_subtasks_val, meta_testing_ratio = hp.meta_testing_ratio)
     test_dataloader = DataLoader(test_dataset, batch_size=hp.batch_size, shuffle=True, collate_fn=test_dataset.collate_fn, drop_last= True, num_workers=0)     #the dataloader for evaluate   ##since only have tr data now, use training data 
-    print("meta-testing data file list:", test_dataset.filelist)
+    #print("meta-testing data file list:", test_dataset.filelist)
     
     #define model
     print("defining model...")
-    meta_model = FastSpeech2().to(device)
+    if hp.use_spk_embed:
+        meta_model = FastSpeech2(n_spkers=1).to(device)
+    else:
+        meta_model = FastSpeech2().to(device)
     print("model has been defined")
     num_param = utils.get_param_num(meta_model)
     print("num of FastSpeech2 Parameters", num_param)
@@ -164,14 +179,12 @@ def main(args):
 
     #load checkpoint is exists
     checkpoint_path = os.path.join(hp.checkpoint_path)
-    #try:
-    if True:
+    try:
         checkpoint = torch.load(os.path.join(
             checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
         meta_load_state_dict(meta_model, outer_opt, checkpoint) 
         print("\n---Model Restored at Step {}---\n".format(args.restore_step))
-    #except:
-    else:
+    except:
         print("\n---Start New Training---\n")
         if not os.path.exists(checkpoint_path):
             os.makedirs(checkpoint_path)
@@ -188,7 +201,10 @@ def main(args):
 
     # Init logger
     print('initing logger...')
-    log_path = hp.log_path
+    if hp.exp_name in hp.exp_set:
+        log_path = os.path.join(hp.log_path, hp.exp_name)
+    else:
+        log_path = hp.log_path
     if not os.path.exists(log_path):
         os.makedirs(log_path)
         os.makedirs(os.path.join(log_path, 'train'))
@@ -204,6 +220,7 @@ def main(args):
     '''
       
     current_step = args.restore_step
+    min_val_loss = float('inf')
 
     #start training
     print("start training")
@@ -212,8 +229,11 @@ def main(args):
       for k, (batch_tr, batch_te) in enumerate(dataloader):
         start_time = time.time()
         meta_model.train()
-
+        
         current_step += 1
+
+        #shuffle dataset to get a new speaker set for training
+        dataset.shuffle_filelist()
 
 
         outer_opt.zero_grad()
@@ -241,7 +261,7 @@ def main(args):
             #params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]  #change to ANIL
             params = []
             for n,p in meta_model.named_parameters():
-                if n[:3] == 'var' and p.requires_grad:
+                if n[:3] in hp.fine_tune_model_set and p.requires_grad:
                     params.append(p.detach().clone().requires_grad_(True))
                 else:
                     params.append(p.detach().clone().requires_grad_(False))
@@ -325,7 +345,13 @@ def main(args):
             train_logger.add_scalar('Loss/energy_loss', train_e_loss, current_step)
 
         if current_step % hp.save_step ==0:
-            torch.save({'model':meta_model.state_dict(), 'optimizer': outer_opt.state_dict()}, os.path.join(checkpoint_path, 'checkpoint_{}.pth.tar'.format(current_step)))
+            if hp.exp_name in hp.exp_set:
+                save_path = os.path.join(checkpoint_path, hp.exp_name)
+                if not os.path.exists(save_path):
+                    os.makedirs(save_path)
+                torch.save({'model':meta_model.state_dict(), 'optimizer': outer_opt.state_dict()}, os.path.join(save_path, 'checkpoint_{}.pth.tar'.format(current_step)))
+            else:
+                torch.save({'model':meta_model.state_dict(), 'optimizer': outer_opt.state_dict()}, os.path.join(checkpoint_path, 'checkpoint_{}.pth.tar'.format(current_step)))
             print('save model at step {} ...'.format(current_step))
 
         #if current_step % hp.synth_step == 0:
@@ -333,6 +359,10 @@ def main(args):
 
         if current_step % hp.eval_step == 0:         
             print("evaluating....")
+
+            #get new set of speaker for evaluation
+            test_dataset.shuffle_filelist()
+
             val_losses, val_mel_losses, val_mel_postnet_losses, val_d_losses, val_f_losses, val_e_losses = evaluate(n_tasks_test, test_dataloader, meta_model, T_test, get_inner_opt, reg_param, log_interval=inner_log_interval_test)
             #val_losses, val_mel_losses, val_mel_postnet_losses, val_d_losses, val_f_losses, val_e_losses = normal_evaluate(n_tasks_test, test_dataloader, meta_model)
             print("Test loss {:.2e} +- {:.2e}(mean +- std over {} tasks)."
@@ -344,9 +374,12 @@ def main(args):
             val_logger.add_scalar('Val_Loss/duration_loss', val_d_losses.mean().item(), current_step)
             val_logger.add_scalar('Val_Loss/F0_loss', val_f_losses.mean().item(), current_step)
             val_logger.add_scalar('Val_Loss/energy_loss', val_e_losses.mean().item(), current_step)
-
-
-
+            
+            #save model
+            if val_losses.mean().item()<min_val_loss:
+                min_val_loss = val_losses.mean().item()
+                torch.save({'model':meta_model.state_dict(), 'optimizer': outer_opt.state_dict()}, os.path.join(checkpoint_path, 'checkpoint_best.pth.tar'))
+                print('save model at step {} (best model)...'.format(current_step))
 
 
 def inner_loop(hparams, params, optim, n_steps, log_interval, create_graph=False):
@@ -381,10 +414,12 @@ def normal_evaluate(n_tasks, dataloader, meta_model):
             #params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
             params = []
             for n,p in meta_model.named_parameters():
-                if n[:3] == 'var' and p.requires_grad:
+                print(n, p.requires_grad)
+                if n[:3] in hp.fine_tune_model_set and p.requires_grad:
                     params.append(p.detach().clone().requires_grad_(True))
                 else:
                     params.append(p.detach().clone().requires_grad_(False))
+            print(done)
             #last_param = inner_loop(meta_model.parameters(), params, inner_opt, n_steps, log_interval=log_interval)[-1]
 
             task.val_loss_f(params, meta_model.parameters())
@@ -420,7 +455,7 @@ def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param,
             #params = [p.detach().clone().requires_grad_(True) for p in meta_model.parameters()]
             params = []
             for n, p in meta_model.named_parameters():
-                if n[:3] == 'var' and p.requires_grad:
+                if n[:3] in hp.fine_tune_model_set and p.requires_grad:
                     params.append(p.detach().clone().requires_grad_(True))
                 else:
                     params.append(p.detach().clone().requires_grad_(False))
@@ -441,15 +476,17 @@ def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param,
 
 
 def meta_load_state_dict(meta_model, opt, checkpoint):
-    for n, p in checkpoint['model'].items():
-        if n[7:] not in meta_model.state_dict():
-            print('not in meta_model:', n)
-            continue
-        if isinstance(p, nn.parameter.Parameter):
-            p = p.data
-        meta_model.state_dict()[n[7:]].copy_(p)
-    #meta_model.load_state_dict(checkpoint['model'])
-    #opt.load_state_dict(checkpoint['optimizer'])
+    try:
+        meta_model.load_state_dict(checkpoint['model'])
+        opt.load_state_dict(checkpoint['optimizer'])
+    except:
+        for n, p in checkpoint['model'].items():
+            if n[7:] not in meta_model.state_dict():
+                print('not in meta_model:', n)
+                continue
+            if isinstance(p, nn.parameter.Parameter):
+                p = p.data
+            meta_model.state_dict()[n[7:]].copy_(p)
     print('succeed!')
 
 if __name__ == '__main__':
