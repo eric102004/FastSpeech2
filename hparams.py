@@ -141,7 +141,7 @@ syn_fine_tune_batch_size = 3
 
 #baseline model for synthesize
 model_mode = 'meta'
-use_spk_embed = False
+use_spk_embed = True
 use_pretrained_emb = False
 spk_embed_dim = 256
 spk_embed_weight_std = 0.01

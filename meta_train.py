@@ -30,7 +30,7 @@ import audio as Audio
 import higher
 import hypergrad as hg
 
-from sklean.cluster import KMeans
+from sklearn.cluster import KMeans
 
 class Task:
     """
@@ -181,7 +181,7 @@ def main(args):
     if args.restore_step!=0:
         checkpoint = torch.load(os.path.join(
             checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
-        meta_load_state_dict(meta_model, outer_opt, checkpoint) 
+        meta_load_state_dict(meta_model, outer_opt, checkpoint, device) 
         print("\n---Model Restored at Step {}---\n".format(args.restore_step))
     else:
         print("\n---Start New Training---\n")
@@ -418,7 +418,6 @@ def normal_evaluate(n_tasks, dataloader, meta_model):
                     params.append(p.detach().clone().requires_grad_(True))
                 else:
                     params.append(p.detach().clone().requires_grad_(False))
-            print(done)
             #last_param = inner_loop(meta_model.parameters(), params, inner_opt, n_steps, log_interval=log_interval)[-1]
 
             task.val_loss_f(params, meta_model.parameters())
@@ -474,34 +473,49 @@ def evaluate(n_tasks, dataloader, meta_model, n_steps, get_inner_opt, reg_param,
                 return np.array(val_losses), np.array(val_mel_losses), np.array(val_mel_postnet_losses), np.array(val_d_losses), np.array(val_f_losses), np.array(val_e_losses)
 
 
-def meta_load_state_dict(meta_model, opt, checkpoint):
+def meta_load_state_dict(meta_model, opt, checkpoint, device):
     try:
         meta_model.load_state_dict(checkpoint['model'])
         opt.load_state_dict(checkpoint['optimizer'])
     except:
         for n, p in checkpoint['model'].items():
-            '''
             if n[7:] not in meta_model.state_dict():
                 print('not in meta_model:', n)
                 continue
             if isinstance(p, nn.parameter.Parameter):
                 p = p.data
-            meta_model.state_dict()[n[7:]].copy_(p)
-            '''
             if n[7:10]=='emb':
-                print(p.detach().cpu().numpy())
-                print(p.shape)
-        print(done)
+                try:
+                    meta_model.state_dict()[n[7:]].copy_(p)
+                except:
+                    target_emb, labels = convert_embedding(p, hp.n_meta_emb, device)
+                    meta_model.state_dict()[n[7:]].copy_(target_emb)
+                    meta_model.emb_table = labels
+                continue
+            meta_model.state_dict()[n[7:]].copy_(p)
     print('succeed!')
 
-def convert_embedding(embeddings, n_target_emb):
+def convert_embedding(embeddings, n_target_emb, device):
     print(f'performing k-means clustering to get {n_target_emb} embeddings from {len(embeddings)} embeddings')
     start_time = time.time()
-    embeddings = embeddings.detach.cpu().numpy()
-    kmeans = KMeans(n_clusters=n_target_emb, random_state=0).fit(embeddings)
+    assert(n_target_emb>0)
+    if n_target_emb>1:
+        embeddings = embeddings.detach().cpu().numpy()
+        kmeans = KMeans(n_clusters=n_target_emb, random_state=0).fit(embeddings)
 
-    labels = kmeans.labels_
-    target_emb = 
+        labels = kmeans.labels_.tolist()
+    elif n_target_emb==1:
+        labels = [0]*len(embeddings)
+
+    target_emb = []
+    for i in range(n_target_emb):
+        spk_idx = [x for x in range(len(labels)) if labels[x]==i]
+        target_emb.append(np.mean(embeddings[spk_idx,:], axis=0))
+    target_emb = torch.tensor(target_emb).to(device)
+    print(target_emb.shape)
+    end_time = time.time()
+    print('done!')
+    print(f'time comsumed:{end_time-start_time} sec')
     return target_emb, labels
 
 
