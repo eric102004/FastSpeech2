@@ -28,10 +28,9 @@ import utils
 import audio as Audio
 
 import higher
-
 import hypergrad as hg
 
-
+from sklean.cluster import KMeans
 
 class Task:
     """
@@ -71,7 +70,7 @@ class Task:
 
         #forward
         if hp.use_spk_embed:
-            speaker_ids = torch.tensor([0]*self.batch_size).type(torch.int64).to(device)
+            #(to modify)speaker_ids = torch.tensor([0]*self.batch_size).type(torch.int64).to(device)
             mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids=speaker_ids, params=params)
         else:
             mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params=params)
@@ -96,7 +95,7 @@ class Task:
         max_mel_len = np.max(self.sample_te['mel_len']).astype(np.int32)
         #forward
         if hp.use_spk_embed:
-            speaker_ids = torch.tensor([0]*self.batch_size).type(torch.int64).to(device)
+            #(to modify)speaker_ids = torch.tensor([0]*self.batch_size).type(torch.int64).to(device)
             mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids=speaker_ids, params = params)
         else:
             mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params = params)
@@ -158,7 +157,7 @@ def main(args):
     #define model
     print("defining model...")
     if hp.use_spk_embed:
-        meta_model = FastSpeech2(n_spkers=1).to(device)
+        meta_model = FastSpeech2(n_spkers=hp.n_meta_emb).to(device)
     else:
         meta_model = FastSpeech2().to(device)
     print("model has been defined")
@@ -179,12 +178,12 @@ def main(args):
 
     #load checkpoint is exists
     checkpoint_path = os.path.join(hp.checkpoint_path)
-    try:
+    if args.restore_step!=0:
         checkpoint = torch.load(os.path.join(
             checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
         meta_load_state_dict(meta_model, outer_opt, checkpoint) 
         print("\n---Model Restored at Step {}---\n".format(args.restore_step))
-    except:
+    else:
         print("\n---Start New Training---\n")
         if not os.path.exists(checkpoint_path):
             os.makedirs(checkpoint_path)
@@ -481,13 +480,30 @@ def meta_load_state_dict(meta_model, opt, checkpoint):
         opt.load_state_dict(checkpoint['optimizer'])
     except:
         for n, p in checkpoint['model'].items():
+            '''
             if n[7:] not in meta_model.state_dict():
                 print('not in meta_model:', n)
                 continue
             if isinstance(p, nn.parameter.Parameter):
                 p = p.data
             meta_model.state_dict()[n[7:]].copy_(p)
+            '''
+            if n[7:10]=='emb':
+                print(p.detach().cpu().numpy())
+                print(p.shape)
+        print(done)
     print('succeed!')
+
+def convert_embedding(embeddings, n_target_emb):
+    print(f'performing k-means clustering to get {n_target_emb} embeddings from {len(embeddings)} embeddings')
+    start_time = time.time()
+    embeddings = embeddings.detach.cpu().numpy()
+    kmeans = KMeans(n_clusters=n_target_emb, random_state=0).fit(embeddings)
+
+    labels = kmeans.labels_
+    target_emb = 
+    return target_emb, labels
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Data HyperCleaner')
