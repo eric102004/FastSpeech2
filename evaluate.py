@@ -31,7 +31,7 @@ def evaluate(model, step, vocoder=None):
     
     # Get dataset
     #dataset = Dataset("val.txt", sort=False)
-    dataset = Dataset(hp.filelist_val, sort=False)
+    dataset = Dataset(hp.filelist_tr, sort=False)
     loader = DataLoader(dataset, batch_size=hp.batch_size**2, shuffle=True, collate_fn=dataset.collate_fn, drop_last=False, num_workers=0, )
     
     # Get loss function
@@ -63,9 +63,11 @@ def evaluate(model, step, vocoder=None):
         
             with torch.no_grad():
                 # Forward
-                mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, out_mel_len = model(
-                        text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len)
-                
+                if hp.use_spk_embed:
+                    spk_ids = torch.tensor(data_of_batch["spk_ids"]).to(torch.int64).to(device)
+                    mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, out_mel_len = model(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, spk_ids)
+                else:
+                    mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, out_mel_len = model(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len)
                 # Cal Loss
                 mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = Loss(
                         log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)

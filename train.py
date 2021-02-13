@@ -8,12 +8,15 @@ import argparse
 import os
 import time
 
-from fastspeech2 import FastSpeech2
 from loss import FastSpeech2Loss
 from dataset import Dataset
 from optimizer import ScheduledOptim
 from evaluate import evaluate
 import hparams as hp
+if hp.use_spk_embed:
+    from fastspeech2_emb import FastSpeech2
+else:
+    from fastspeech2 import FastSpeech2
 import utils
 import audio as Audio
 
@@ -37,7 +40,10 @@ def main(args):
 
     # Define model
     #model = nn.DataParallel(FastSpeech2()).to(device)
-    model = FastSpeech2().to(device)
+    if hp.use_spk_embed:
+        model = FastSpeech2(n_spkers=len(hp.filelist_tr)).to(device)
+    else:
+        model = FastSpeech2().to(device)
     print("Model Has Been Defined")
     num_param = utils.get_param_num(model)
     print('Number of FastSpeech2 Parameters:', num_param)
@@ -116,6 +122,7 @@ def main(args):
     
     # Training
     print("start training\n")
+    stop_sig=False
     model = model.train()
     for epoch in range(hp.epochs):
         # Get Training Loader
@@ -140,13 +147,15 @@ def main(args):
                 max_mel_len = np.max(data_of_batch["mel_len"]).astype(np.int32)
                
                 # Forward
-                mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ = model(
-                    text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len)
-                
+                if hp.use_spk_embed:
+                    spk_ids = torch.tensor(data_of_batch["spk_ids"]).to(torch.int64).to(device)
+                    mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ = model(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, spk_ids)
+                else:
+                    mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ = model(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len)
                 # Cal Loss
                 mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = Loss(
                         log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
-                total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
+                total_loss = mel_loss + mel_postnet_loss + d_loss + 0.01*f_loss + 0.1*e_loss
                  
                 # Logger
                 t_l = total_loss.item()
@@ -222,17 +231,19 @@ def main(args):
                     mel = mel_output[0, :length].detach().cpu().transpose(0, 1)
                     mel_postnet_torch = mel_postnet_output[0, :length].detach().unsqueeze(0).transpose(1, 2)
                     mel_postnet = mel_postnet_output[0, :length].detach().cpu().transpose(0, 1)
-                    Audio.tools.inv_mel_spec(mel, os.path.join(synth_path, "step_{}_griffin_lim.wav".format(current_step)))
-                    Audio.tools.inv_mel_spec(mel_postnet, os.path.join(synth_path, "step_{}_postnet_griffin_lim.wav".format(current_step)))
+                    spk_id = dataset.inv_spk_table[int(spk_ids[0])]
+
+                    Audio.tools.inv_mel_spec(mel, os.path.join(synth_path, "step_{}_spk_{}_griffin_lim.wav".format(current_step,spk_id)))
+                    Audio.tools.inv_mel_spec(mel_postnet, os.path.join(synth_path, "step_{}_spk_{}_postnet_griffin_lim.wav".format(current_step, spk_id)))
                     
                     if hp.vocoder == 'melgan':
-                        utils.melgan_infer(mel_torch, melgan, os.path.join(hp.synth_path, 'step_{}_{}.wav'.format(current_step, hp.vocoder)))
-                        utils.melgan_infer(mel_postnet_torch, melgan, os.path.join(hp.synth_path, 'step_{}_postnet_{}.wav'.format(current_step, hp.vocoder)))
-                        utils.melgan_infer(mel_target_torch, melgan, os.path.join(hp.synth_path, 'step_{}_ground-truth_{}.wav'.format(current_step, hp.vocoder)))
+                        utils.melgan_infer(mel_torch, melgan, os.path.join(hp.synth_path, 'step_{}_spk_{}_{}.wav'.format(current_step, spk_id,hp.vocoder)))
+                        utils.melgan_infer(mel_postnet_torch, melgan, os.path.join(hp.synth_path, 'step_{}_spk_{}_postnet_{}.wav'.format(current_step, spk_id,hp.vocoder)))
+                        utils.melgan_infer(mel_target_torch, melgan, os.path.join(hp.synth_path, 'step_{}_spk_{}_ground-truth_{}.wav'.format(current_step, spk_id, hp.vocoder)))
                     elif hp.vocoder == 'waveglow':
-                        utils.waveglow_infer(mel_torch, waveglow, os.path.join(hp.synth_path, 'step_{}_{}.wav'.format(current_step, hp.vocoder)))
-                        utils.waveglow_infer(mel_postnet_torch, waveglow, os.path.join(hp.synth_path, 'step_{}_postnet_{}.wav'.format(current_step, hp.vocoder)))
-                        utils.waveglow_infer(mel_target_torch, waveglow, os.path.join(hp.synth_path, 'step_{}_ground-truth_{}.wav'.format(current_step, hp.vocoder)))
+                        utils.waveglow_infer(mel_torch, waveglow, os.path.join(hp.synth_path, 'step_{}_spk_{}_{}.wav'.format(current_step, spk_id, hp.vocoder)))
+                        utils.waveglow_infer(mel_postnet_torch, waveglow, os.path.join(hp.synth_path, 'step_{}_spk_{}_postnet_{}.wav'.format(current_step, spk_id, hp.vocoder)))
+                        utils.waveglow_infer(mel_target_torch, waveglow, os.path.join(hp.synth_path, 'step_{}_spk_{}_ground-truth_{}.wav'.format(current_step, spk_id, hp.vocoder)))
                     
                     f0 = f0[0, :length].detach().cpu().numpy()
                     energy = energy[0, :length].detach().cpu().numpy()
@@ -264,6 +275,14 @@ def main(args):
                     Time = np.delete(
                         Time, [i for i in range(len(Time))], axis=None)
                     Time = np.append(Time, temp_value)
+
+                if current_step>=hp.stop_step:
+                    stop_sig=True
+                    break
+            if stop_sig:
+                break
+        if stop_sig:
+            break
 
 if __name__ == "__main__":
 

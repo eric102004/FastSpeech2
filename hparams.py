@@ -82,7 +82,7 @@ test_path = "./results"
 
 # Optimizer
 batch_size = 6                #original:16
-epochs = 1000
+epochs = 10000
 n_warm_up_step = 4000
 grad_clip_thresh = 1.0
 acc_steps = 1
@@ -101,12 +101,14 @@ log_offset = 1.
 
 
 # Save, log and synthesis
-save_step = 200          #change from 10000 to 10
-synth_step = 1000
-eval_step = 100           #change from 1000 to 10
+save_step = 50000          #change from 10000 to 10
+synth_step = 50000
+eval_step = 10000           #change from 1000 to 10
 eval_size = 256
-log_step = 10              #change from 1000 to 10  
+log_step = 1000              #change from 1000 to 10  
 clear_Time = 20
+
+stop_step = 600000
 
 
 #--------------------------------------------------

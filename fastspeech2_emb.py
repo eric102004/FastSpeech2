@@ -65,6 +65,9 @@ class FastSpeech2(nn.Module):
 
         return mel_output, mel_output_postnet, d_prediction, p_prediction, e_prediction, src_mask, mel_mask, mel_len
 
+    def predict_emb(self, mel_input):
+        return None
+
 
 if __name__ == "__main__":
     # Test

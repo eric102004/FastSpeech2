@@ -23,6 +23,8 @@ class Dataset(Dataset):
         assert((few_shot==None) or (isinstance(few_shot,int)))
         self.few_shot = few_shot
 
+        self.get_spk_table()
+
     def __len__(self):
         if self.few_shot==None:
             return len(self.text)
@@ -56,6 +58,9 @@ class Dataset(Dataset):
 
     def reprocess(self, batch, cut_list):
         ids = [batch[ind]["id"] for ind in cut_list]
+
+        if hparams.use_spk_embed:
+            spk_ids = [self.spk_table[_id.split("_")[0]] for _id in ids]
         texts = [batch[ind]["text"] for ind in cut_list]
         mel_targets = [batch[ind]["mel_target"] for ind in cut_list]
         Ds = [batch[ind]["D"] for ind in cut_list]
@@ -88,6 +93,8 @@ class Dataset(Dataset):
                "energy": energies,
                "src_len": length_text,
                "mel_len": length_mel}
+        if hparams.use_spk_embed:
+            out.update({"spk_ids": spk_ids})
         
         return out
 
@@ -109,6 +116,15 @@ class Dataset(Dataset):
             output.append(self.reprocess(batch, cut_list[i]))
 
         return output
+
+    def get_spk_table(self):
+        
+        spk = hparams.filelist_tr
+        self.spk_table = dict()
+        for i in range(len(spk)):
+            self.spk_table[spk[i][:-4]]= i
+        self.inv_spk_table = {i:spk_id for spk_id,i in self.spk_table.items()}
+
 
 if __name__ == "__main__":
     # Test

@@ -487,6 +487,7 @@ def meta_load_state_dict(meta_model, opt, checkpoint, device):
             if n[7:10]=='emb':
                 try:
                     meta_model.state_dict()[n[7:]].copy_(p)
+                    meta_model.emb_table = [x for x in range(hp.n_meta_emb)]
                 except:
                     target_emb, labels = convert_embedding(p, hp.n_meta_emb, device)
                     meta_model.state_dict()[n[7:]].copy_(target_emb)
@@ -512,7 +513,6 @@ def convert_embedding(embeddings, n_target_emb, device):
         spk_idx = [x for x in range(len(labels)) if labels[x]==i]
         target_emb.append(np.mean(embeddings[spk_idx,:], axis=0))
     target_emb = torch.tensor(target_emb).to(device)
-    print(target_emb.shape)
     end_time = time.time()
     print('done!')
     print(f'time comsumed:{end_time-start_time} sec')
