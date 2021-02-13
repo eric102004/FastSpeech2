@@ -71,7 +71,8 @@ class Task:
         #forward
         if hp.use_spk_embed:
             #(to modify)speaker_ids = torch.tensor([0]*self.batch_size).type(torch.int64).to(device)
-            mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids=speaker_ids, params=params)
+            spk_ids = torch.tensor(self.sample_tr["emb_ids"]).to(torch.int64).to(device)
+            mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids=spk_ids, params=params)
         else:
             mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params=params)
         #cal loss
@@ -96,7 +97,8 @@ class Task:
         #forward
         if hp.use_spk_embed:
             #(to modify)speaker_ids = torch.tensor([0]*self.batch_size).type(torch.int64).to(device)
-            mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids=speaker_ids, params = params)
+            spk_ids = torch.tensor(self.sample_te["emb_ids"]).to(torch.int64).to(device)
+            mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids=spk_ids, params = params)
         else:
             mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params = params)
         #cal loss
@@ -187,6 +189,9 @@ def main(args):
         print("\n---Start New Training---\n")
         if not os.path.exists(checkpoint_path):
             os.makedirs(checkpoint_path)
+    # get spk_emb_table
+    dataset.get_spk_emb_table(meta_model.emb_table)
+
 
     # Load vocoder
     '''
@@ -211,7 +216,11 @@ def main(args):
     train_logger = SummaryWriter(os.path.join(log_path, 'train'))
     val_logger = SummaryWriter(os.path.join(log_path, 'validation'))
 
-    # Init synthesis directory
+   # get spk_emb_table
+   spk_table = 
+   dataset.get_spk_emb_table()
+
+   # Init synthesis directory
     '''
     synth_path = hp.synth_path
     if not os.path.exists(synth_path):

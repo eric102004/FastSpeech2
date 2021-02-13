@@ -168,6 +168,8 @@ class Dataset(Dataset):
 
     def reprocess(self, batch, cut_list, task):
         ids = [batch[ind][task]["id"] for ind in cut_list]
+        if hparams.use_spk_embed:
+            emb_ids = [self.spk_emb_table[_id.split("_")[0]] for _id in ids]
         texts = [batch[ind][task]["text"] for ind in cut_list]
         mel_targets = [batch[ind][task]["mel_target"] for ind in cut_list]
         Ds = [batch[ind][task]["D"] for ind in cut_list]
@@ -210,6 +212,8 @@ class Dataset(Dataset):
                "energy": energies,
                "src_len": length_text,
                "mel_len": length_mel}
+        if hparams.use_spk_embed:
+            out.update({"emb_ids":emb_ids})
 
         return out
 
@@ -252,6 +256,14 @@ class Dataset(Dataset):
         self.file_pin += self.num_subtasks
         #self.basename_dict, self.text_dict = meta_process_meta(self.filelist, self.num_subtasks, self.meta_testing_ratio)
 
+    def get_spk_emb_table(self, id_emb_table):
+        spk_list = [n[:-4] for n in hp.filelist_tr]
+        self.spk_table = dict()
+        self.spk_emb_table = dict()
+        for i in range(len(spk_list))
+            self.spk_table[spk_list[i]] = i
+            self.spk_emb_table[spk_list[i]] = id_emb_table[i]
+        self.inv_spk_emb_table = {emb:spk for spk,emb in self.spk_emb_table.items()}
 if __name__ == "__main__":
     # Test
     # Test
