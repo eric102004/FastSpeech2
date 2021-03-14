@@ -13,16 +13,24 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 class FastSpeech2(nn.Module):
     """ FastSpeech2 """
 
-    def __init__(self, use_postnet=True, n_spkers=1):
+    def __init__(self, use_postnet=True, n_spkers=1, ft_mode=False):
         super(FastSpeech2, self).__init__()
         
         ### Speaker Embedding Table ###
         self.use_spk_embed = hp.use_spk_embed
+        self.ft_mode = ft_mode
         if self.use_spk_embed:
             self.n_spkers = n_spkers
             self.spk_embed_dim = hp.spk_embed_dim
             self.spk_embed_weight_std = hp.spk_embed_weight_std
-            self.embed_speakers = Embedding(n_spkers, self.spk_embed_dim, padding_idx=None, std=self.spk_embed_weight_std)
+            if self.ft_mode:
+                #initialize emb_table
+                self.emb_table = nn.Linear(n_spkers, self.spk_embed_dim, bias=False)
+                #self.emb_table.bias.data.fill_(0.0)
+                #initialize emb_weight
+                self.emb_weight = nn.Parameter(torch.tensor([1/n_spkers]*n_spkers).unsqueeze(0), requires_grad=True)
+            else:
+                self.embed_speakers = Embedding(n_spkers, self.spk_embed_dim, padding_idx=None, std=self.spk_embed_weight_std)
         
         ### Encoder, Speaker Integrator, Variance Adaptor, Deocder, Postnet ###
         self.encoder = Encoder()
@@ -35,14 +43,23 @@ class FastSpeech2(nn.Module):
         if self.use_postnet:
             self.postnet = PostNet()
 
+
     def forward(self, src_seq, src_len, mel_len=None, d_target=None, p_target=None, e_target=None, max_src_len=None, max_mel_len=None, speaker_ids=None):
         src_mask = get_mask_from_lengths(src_len, max_src_len)
         mel_mask = get_mask_from_lengths(mel_len, max_mel_len) if mel_len is not None else None
         
         encoder_output = self.encoder(src_seq, src_mask)
-        
-        if self.use_spk_embed and speaker_ids is not None:
-            spk_embed = self.embed_speakers(speaker_ids)
+        if hp.use_spk_embed and not hp.use_pretrained_emb:
+            assert(speaker_ids!=None)
+
+        if self.use_spk_embed:
+            if self.ft_mode:
+                batch_size = src_seq.shape[0]
+                spk_embed = self.emb_table(self.emb_weight.expand(batch_size,-1))
+            elif speaker_ids is not None:
+                spk_embed = self.embed_speakers(speaker_ids)
+            else:
+                raise ValueError("Should specify speaker_ids")
             encoder_output = self.speaker_integrator(encoder_output, spk_embed)
         
         if d_target is not None:

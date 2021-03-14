@@ -34,6 +34,7 @@ def main(args):
     # Get dataset
     print("loading dataset...\n")
     #dataset = Dataset("train.txt") 
+    print(f'number of speakers:{len(hp.filelist_tr)}')
     dataset = Dataset(hp.filelist_tr) 
     loader = DataLoader(dataset, batch_size=hp.batch_size**2, shuffle=True, 
         collate_fn=dataset.collate_fn, drop_last=True, num_workers=0)
@@ -41,6 +42,7 @@ def main(args):
     # Define model
     #model = nn.DataParallel(FastSpeech2()).to(device)
     if hp.use_spk_embed:
+        print('using speaker embedding!')
         model = FastSpeech2(n_spkers=len(hp.filelist_tr)).to(device)
     else:
         model = FastSpeech2().to(device)
@@ -97,6 +99,8 @@ def main(args):
         waveglow.to(device)
 
     # Init logger
+    print(f'log step:{hp.log_step}')
+    print(f'save step:{hp.save_step}')
     if hp.exp_name in hp.exp_set:
         log_path = os.path.join(hp.log_path, hp.exp_name)
     else:
@@ -231,7 +235,11 @@ def main(args):
                     mel = mel_output[0, :length].detach().cpu().transpose(0, 1)
                     mel_postnet_torch = mel_postnet_output[0, :length].detach().unsqueeze(0).transpose(1, 2)
                     mel_postnet = mel_postnet_output[0, :length].detach().cpu().transpose(0, 1)
-                    spk_id = dataset.inv_spk_table[int(spk_ids[0])]
+                    if hp.use_spk_embed:
+                        spk_id = dataset.inv_spk_table[int(spk_ids[0])]
+                    #else:
+                        #todo
+
 
                     Audio.tools.inv_mel_spec(mel, os.path.join(synth_path, "step_{}_spk_{}_griffin_lim.wav".format(current_step,spk_id)))
                     Audio.tools.inv_mel_spec(mel_postnet, os.path.join(synth_path, "step_{}_spk_{}_postnet_griffin_lim.wav".format(current_step, spk_id)))

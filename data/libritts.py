@@ -93,11 +93,13 @@ def build_from_path_meta(in_dir, out_dir):
     f0_max = energy_max = 0
     f0_min = energy_min = 1000000
     n_frames = 0
-    for suffix in ['_dev','']:
+    for suffix in ['_test']:
         if suffix=='_dev':
             print('processing dev set')
         elif suffix=='':
             print('processing training set')
+        elif suffix=='_test':
+            print('processing testing set')
         with open(os.path.join(in_dir, f'metadata{suffix}.csv'), encoding='utf-8') as f:  #chane
             for line in f:
                 parts = line.strip().split('|')
@@ -112,6 +114,8 @@ def build_from_path_meta(in_dir, out_dir):
                         ret = process_utterance(in_dir, out_dir, speaker, speaker_sub, basename, dir_name='train-clean-100')
                     elif suffix=='_dev':
                         ret = process_utterance(in_dir, out_dir, speaker, speaker_sub, basename, dir_name='dev-clean')
+                    elif suffix=='_test':
+                        ret = process_utterance(in_dir, out_dir, speaker, speaker_sub, basename, dir_name='test-clean')
                 #except:
                 else:
                     ret = None
@@ -126,7 +130,7 @@ def build_from_path_meta(in_dir, out_dir):
                     if speaker not in train.keys():
                         train[speaker] = []
                     train[speaker].append(info)
-                elif speaker+'.txt' in hp.filelist_val:
+                elif speaker+'.txt' in hp.filelist_val or speaker+'.txt' in hp.filelist_test:
                     if speaker not in val.keys():
                         val[speaker] = []
                     val[speaker].append(info)
@@ -144,7 +148,7 @@ def build_from_path_meta(in_dir, out_dir):
                 energy_max = max(energy_max, e_max)
                 energy_min = min(energy_min, e_min)
                 n_frames += n
-    
+
     with open(os.path.join(out_dir, 'stat.txt'), 'w', encoding='utf-8') as f:     
         strs = ['Total time: {} hours'.format(n_frames*hp.hop_length/hp.sampling_rate/3600),
                 'Total frames: {}'.format(n_frames),
@@ -155,7 +159,7 @@ def build_from_path_meta(in_dir, out_dir):
         for s in strs:
             print(s)
             f.write(s+'\n')
-   
+
     #remove None from 2 dicts
     for s in train.keys():
         train[s] = [r for r in train[s] if r is not None]

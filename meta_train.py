@@ -1,6 +1,7 @@
 import math
 import argparse
 import time
+import pickle
 
 import numpy as np
 import torch
@@ -71,13 +72,13 @@ class Task:
         #forward
         if hp.use_spk_embed:
             #(to modify)speaker_ids = torch.tensor([0]*self.batch_size).type(torch.int64).to(device)
-            spk_ids = torch.tensor(self.sample_tr["emb_ids"]).to(torch.int64).to(device)
+            spk_ids = torch.tensor(self.sample_tr["emb_ids"]).to(torch.int64).to(self.device)
             mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids=spk_ids, params=params)
         else:
             mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params=params)
         #cal loss
         mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
-        total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
+        total_loss = mel_loss + mel_postnet_loss + d_loss + 0.01*f_loss + 0.1*e_loss
         total_loss = total_loss / self.batch_size
         total_loss += 0.5 * self.reg_param * self.bias_reg_f(hparams, params)
         return total_loss
@@ -97,13 +98,13 @@ class Task:
         #forward
         if hp.use_spk_embed:
             #(to modify)speaker_ids = torch.tensor([0]*self.batch_size).type(torch.int64).to(device)
-            spk_ids = torch.tensor(self.sample_te["emb_ids"]).to(torch.int64).to(device)
+            spk_ids = torch.tensor(self.sample_te["emb_ids"]).to(torch.int64).to(self.device)
             mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids=spk_ids, params = params)
         else:
             mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ =  self.fmodel(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, params = params)
         #cal loss
         mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = self.loss_fn(log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
-        val_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
+        val_loss = mel_loss + mel_postnet_loss + d_loss + 0.01*f_loss + 0.1*e_loss
         self.val_mel_loss = mel_loss.item()
         self.val_mel_postnet_loss = mel_postnet_loss.item()
         self.val_d_loss = d_loss.item()
@@ -159,6 +160,7 @@ def main(args):
     #define model
     print("defining model...")
     if hp.use_spk_embed:
+        print(f'defining model for {hp.n_meta_emb} speakers')
         meta_model = FastSpeech2(n_spkers=hp.n_meta_emb).to(device)
     else:
         meta_model = FastSpeech2().to(device)
@@ -179,7 +181,10 @@ def main(args):
         return inner_opt_class(train_loss, **inner_opt_kwargs)
 
     #load checkpoint is exists
-    checkpoint_path = os.path.join(hp.checkpoint_path)
+    if hp.exp_name in hp.exp_set:
+        checkpoint_path = os.path.join(hp.checkpoint_path, hp.exp_name)
+    else:
+        checkpoint_path = os.path.join(hp.checkpoint_path)
     if args.restore_step!=0:
         checkpoint = torch.load(os.path.join(
             checkpoint_path, 'checkpoint_{}.pth.tar'.format(args.restore_step)))
@@ -189,8 +194,24 @@ def main(args):
         print("\n---Start New Training---\n")
         if not os.path.exists(checkpoint_path):
             os.makedirs(checkpoint_path)
+
     # get spk_emb_table
-    dataset.get_spk_emb_table(meta_model.emb_table)
+    if hp.use_spk_embed:
+        if hp.exp_name in hp.exp_set:
+            save_path = os.path.join(hp.checkpoint_path, hp.exp_name, 'emb_table.txt')
+        else:
+            save_path = os.path.join(hp.checkpoint_path,'emb_table.txt') 
+        if hasattr(meta_model, 'emb_table'):
+            dataset.get_spk_emb_table(meta_model.emb_table)
+            #save emb table
+            with open(save_path, 'wb') as f:
+                pickle.dump(meta_model.emb_table, f)
+        else:
+            print("load emb_table from file")
+            with open(save_path, 'rb') as f:
+                emb_table = pickle.load(f)
+            dataset.get_spk_emb_table(emb_table)
+            
 
 
     # Load vocoder
@@ -216,9 +237,6 @@ def main(args):
     train_logger = SummaryWriter(os.path.join(log_path, 'train'))
     val_logger = SummaryWriter(os.path.join(log_path, 'validation'))
 
-   # get spk_emb_table
-   spk_table = 
-   dataset.get_spk_emb_table()
 
    # Init synthesis directory
     '''
@@ -353,13 +371,7 @@ def main(args):
             train_logger.add_scalar('Loss/energy_loss', train_e_loss, current_step)
 
         if current_step % hp.save_step ==0:
-            if hp.exp_name in hp.exp_set:
-                save_path = os.path.join(checkpoint_path, hp.exp_name)
-                if not os.path.exists(save_path):
-                    os.makedirs(save_path)
-                torch.save({'model':meta_model.state_dict(), 'optimizer': outer_opt.state_dict()}, os.path.join(save_path, 'checkpoint_{}.pth.tar'.format(current_step)))
-            else:
-                torch.save({'model':meta_model.state_dict(), 'optimizer': outer_opt.state_dict()}, os.path.join(checkpoint_path, 'checkpoint_{}.pth.tar'.format(current_step)))
+            torch.save({'model':meta_model.state_dict(), 'optimizer': outer_opt.state_dict()}, os.path.join(checkpoint_path, 'checkpoint_{}.pth.tar'.format(current_step)))
             print('save model at step {} ...'.format(current_step))
 
         #if current_step % hp.synth_step == 0:
@@ -486,23 +498,24 @@ def meta_load_state_dict(meta_model, opt, checkpoint, device):
     try:
         meta_model.load_state_dict(checkpoint['model'])
         opt.load_state_dict(checkpoint['optimizer'])
+        #meta_model.emb_table = [x for x in range(hp.n_meta_emb)]
     except:
         for n, p in checkpoint['model'].items():
-            if n[7:] not in meta_model.state_dict():
+            if n[:3]=='emb':
+                try:
+                    meta_model.state_dict()[n[:]].copy_(p)
+                    meta_model.emb_table = [x for x in range(hp.n_meta_emb)]
+                except:
+                    target_emb, labels = convert_embedding(p, hp.n_meta_emb, device)
+                    meta_model.state_dict()[n[:]].copy_(target_emb)
+                    meta_model.emb_table = labels
+                continue
+            if n[:] not in meta_model.state_dict():
                 print('not in meta_model:', n)
                 continue
             if isinstance(p, nn.parameter.Parameter):
                 p = p.data
-            if n[7:10]=='emb':
-                try:
-                    meta_model.state_dict()[n[7:]].copy_(p)
-                    meta_model.emb_table = [x for x in range(hp.n_meta_emb)]
-                except:
-                    target_emb, labels = convert_embedding(p, hp.n_meta_emb, device)
-                    meta_model.state_dict()[n[7:]].copy_(target_emb)
-                    meta_model.emb_table = labels
-                continue
-            meta_model.state_dict()[n[7:]].copy_(p)
+            meta_model.state_dict()[n[:]].copy_(p)
     print('succeed!')
 
 def convert_embedding(embeddings, n_target_emb, device):

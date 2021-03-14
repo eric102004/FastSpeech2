@@ -81,7 +81,7 @@ test_path = "./results"
 
 
 # Optimizer
-batch_size = 6                #original:16
+batch_size = 6                #original:16   #should change to 16!
 epochs = 10000
 n_warm_up_step = 4000
 grad_clip_thresh = 1.0
@@ -101,23 +101,22 @@ log_offset = 1.
 
 
 # Save, log and synthesis
-save_step = 50000          #change from 10000 to 10
-synth_step = 50000
-eval_step = 10000           #change from 1000 to 10
+save_step = 1000          #change from 10000 to 10
+synth_step = 50000000
+eval_step = 100000000           #change from 1000 to 10
 eval_size = 256
-log_step = 1000              #change from 1000 to 10  
+log_step = 10              #change from 1000 to 10  
 clear_Time = 20
 
-stop_step = 600000
-
+stop_step = 20000
 
 #--------------------------------------------------
-exp_name = 'test_ft'
-exp_set = {'meta_ft','baseline_ft','meta_emb','baseline_emb'}
+exp_name = 'meta_emb246'
+exp_set = {'meta_ft','baseline_ft','meta_emb','baseline_emb', 'meta_emb_few', 'baseline_emb_few', 'meta_emb246','meta_emb_few2000', 'baseline_ft_few', 'meta_ft_few', 'meta_emb_few20000'}
 exp_mode = 'meta'
 #some parameters for iMAML
 reg_param = 2               #the coef of the distance loss of model parameters in inner loop training
-T = 15           # the steps taken in inner loop       ##original: 16
+T = 5           # the steps taken in inner loop       ##original: 16
 K = 5            # the steps taken in computing hypergradient  #original:5
 n_tasks_test = 20  # the num of tasks taken in testing phase          ##change from 1000 to 20
 inner_lr = 0.1     # learning rate of inner loop          ##change from 0.1 to 0.001
@@ -126,19 +125,21 @@ filelist_tr = ['103.txt', '1034.txt', '1040.txt', '1069.txt', '1081.txt', '1088.
 exception_filelist_tr = [ '5688.txt']
 #filelist_val = ['1116.txt']
 filelist_val = ['1272.txt', '1462.txt', '1673.txt', '174.txt', '1919.txt', '1988.txt', '1993.txt', '2035.txt', '2078.txt', '2086.txt', '2277.txt', '2412.txt', '2428.txt', '251.txt', '2803.txt', '2902.txt', '3000.txt', '3081.txt', '3170.txt', '3536.txt', '3576.txt', '3752.txt', '3853.txt', '422.txt', '5338.txt', '5536.txt', '5694.txt', '5895.txt', '6241.txt', '6295.txt', '6313.txt', '6319.txt', '6345.txt', '652.txt', '777.txt', '7850.txt', '7976.txt', '8297.txt', '84.txt', '8842.txt']
+filelist_test = ['1089.txt', '1188.txt', '121.txt', '1221.txt', '1284.txt', '1320.txt', '1580.txt', '1995.txt', '2300.txt', '237.txt', '260.txt', '2830.txt', '2961.txt', '3570.txt', '3575.txt', '3729.txt', '4077.txt', '4446.txt', '4507.txt', '4970.txt', '4992.txt', '5105.txt', '5142.txt', '5639.txt', '5683.txt', '61.txt', '672.txt', '6829.txt', '6930.txt', '7021.txt', '7127.txt', '7176.txt', '7729.txt', '8224.txt', '8230.txt', '8455.txt', '8463.txt', '8555.txt', '908.txt']
 num_subtasks_tr = 4           # the num of subtasks in meta learning (num o speakers),used to initializedataset
 num_subtasks_val = 4
 
 meta_testing_ratio = 0.2
 
 #the portion of model to be fine-tuned in the inner loop
-#fine_tune_model_set = {'var','dec','mel','pos','emb'}
-fine_tune_model_set = {'var','dec','mel','emb'}
+fine_tune_model_set = {'var','dec','mel','pos','emb'}
+#fine_tune_model_set = {'emb'}
 
 #parameters for synthesis
-synthesize_speaker_list = ['84','174']
-#synthesize_speaker_list = ['1116']
-syn_fine_tune_step = 3000
+synthesize_speaker_list = ['1089','121']
+#synthesize_speaker_list = [filename[:-4] for filename in filelist_test]
+#synthesize_speaker_list = ['84','174']
+syn_fine_tune_step = 15                                     #fine-tune step
 syn_fine_tune_batch_size = 3
 
 #baseline model for synthesize
@@ -152,8 +153,29 @@ spk_embed_weight_std = 0.01
 num_eval_data = 20    # num of data for evaluation in evaluation.py
 
 # parameters for meta embeddinng
-n_meta_emb = 5
+if exp_name in {'meta_emb'}:
+    n_meta_emb = 10
+elif exp_name in {'baseline_emb_few','meta_emb_few2000', 'meta_emb_few20000'}:
+    n_meta_emb = 24
+    filelist_tr = ['19.txt','32.txt','39.txt','40.txt','83.txt','87.txt','89.txt','103.txt','125.txt','150.txt','198.txt','200.txt','26.txt','27.txt','60.txt','78.txt','118.txt','163.txt','196.txt','201.txt','229.txt','233.txt','254.txt','307.txt'] 
+elif exp_name in {'meta_emb_few'}:
+    n_meta_emb = 4
+    filelist_tr = ['19.txt','32.txt','39.txt','40.txt','83.txt','87.txt','89.txt','103.txt','125.txt','150.txt','198.txt','200.txt','26.txt','27.txt','60.txt','78.txt','118.txt','163.txt','196.txt','201.txt','229.txt','233.txt','254.txt','307.txt'] 
+elif exp_name in {'baseline_ft_few', 'meta_ft_few'}:
+    filelist_tr = ['19.txt','32.txt','39.txt','40.txt','83.txt','87.txt','89.txt','103.txt','125.txt','150.txt','198.txt','200.txt','26.txt','27.txt','60.txt','78.txt','118.txt','163.txt','196.txt','201.txt','229.txt','233.txt','254.txt','307.txt'] 
+else:
+    n_meta_emb = 246
+
+if exp_name in {'baseline_ft','baseline_emb'}:
+    save_step = 10000
+if exp_name in {'baseline_ft_few'}:
+    save_step = 5000
+if exp_name in {'baseline_ft','meta_ft', 'baseline_ft_few', 'meta_ft_few'}:
+    use_spk_embed=False
 
 if __name__ =='__main__':
     print('filelist_tr:',sorted(filelist_tr))
     print('filelist_val:',sorted(filelist_val))
+    #print('filelist_test',[name+'.txt' for name in sorted(os.listdir('../LibriTTS/test-clean'))])
+    print('filelist_test:',sorted(filelist_test))
+    print('synthesize_speaker_list:',synthesize_speaker_list)

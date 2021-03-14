@@ -13,12 +13,10 @@ import hparams as hp
 import utils
 import audio as Audio
 
-if hp.model_mode == 'meta':
+if not hp.use_spk_embed:
     from fastspeech2 import FastSpeech2
-elif hp.model_mode == 'baseline':
-    from fastspeech2_emb import FastSpeech2
 else:
-    raise ValueError('model_mode should be meta or baseline')
+    from fastspeech2_emb import FastSpeech2
 
 #import the modules needed for fine-tuning
 from torch.utils.data import DataLoader
@@ -26,6 +24,9 @@ from loss import FastSpeech2Loss
 from dataset import Dataset
 from optimizer import ScheduledOptim
 from torch.utils.tensorboard import SummaryWriter
+
+#get the sentences of speakers in test-clean
+from get_syn_sentences import get_syn_sentences
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -36,6 +37,7 @@ def preprocess(text):
     g2p = G2p()
     phone = g2p(text)
     phone = list(filter(lambda p: p != ' ', phone))
+    phone.append('sp')
     phone = '{'+ '}{'.join(phone) + '}'
     phone = re.sub(r'\{[^\w\s]?\}', '{sp}', phone)
     phone = phone.replace('}{', ' ')
@@ -57,46 +59,65 @@ def get_and_fine_tune_FastSpeech2(num, loader, speaker):
     train_logger = SummaryWriter(os.path.join(hp.test_path, speaker, 'train'))
 
 
+    #load ckpt
     if hp.exp_name in hp.exp_set:
         checkpoint_path = os.path.join(hp.checkpoint_path,hp.exp_name,"checkpoint_{}.pth.tar".format(num))
         print(f'load model in exp:{hp.exp_name}, step:{num}')
     else:
         checkpoint_path = os.path.join(hp.checkpoint_path, "checkpoint_{}.pth.tar".format(num))
     #model = nn.DataParallel(FastSpeech2())
-    if hp.model_mode =='meta':
+    if not hp.use_spk_embed:
         model = FastSpeech2().to(device)
-        try:
-            model.load_state_dict(torch.load(checkpoint_path)['model'])
-        except:
+        if num>0:
             try:
+                model.load_state_dict(torch.load(checkpoint_path)['model'])
+            except:
+                try:
+                    ckpt = torch.load(checkpoint_path)['model']
+                    for n, p in ckpt.items():
+                        if n[7:] not in model.state_dict():
+                            print('not in meta_model:', n)
+                            continue
+                        if n[7:10]=='emb' and hp.use_pretrained_emb==False:
+                            continue
+                        if isinstance(p, nn.parameter.Parameter):
+                            p = p.data
+                        model.state_dict()[n[7:]].copy_(p)
+                except:
+                    raise RuntimeError('Failed to load model')
+
+    else:
+        if hp.use_pretrained_emb:
+            model = FastSpeech2(n_spkers=hp.n_meta_emb, ft_mode=True).to(device)
+            if num>0:
                 ckpt = torch.load(checkpoint_path)['model']
                 for n, p in ckpt.items():
-                    if n[7:] not in model.state_dict():
-                        print('not in meta_model:', n)
+                    if n[:3]=='emb':
+                        trans_p = torch.transpose(p, 0, 1)
+                        model.state_dict()['emb_table.weight'].copy_(trans_p)
                         continue
-                    if n[7:10]=='emb' and hp.use_pretrained_emb==False:
+                    if n not in model.state_dict():
+                        print('not in meta_model:', n)
                         continue
                     if isinstance(p, nn.parameter.Parameter):
                         p = p.data
-                    model.state_dict()[n[7:]].copy_(p)
-            except:
-                raise RuntimeError('Failed to load model')
+                    model.state_dict()[n[:]].copy_(p)
+        else:
+            model = FastSpeech2(n_spkers=1).to(device)
+            if num>0:
+                ckpt = torch.load(checkpoint_path)['model']
+                for n, p in ckpt.items():
+                    if n[:3]=='emb':
+                        print(f'skip:{n}!')
+                        continue
+                    if n not in model.state_dict():
+                        print('not in meta_model:', n)
+                        continue
+                    if isinstance(p, nn.parameter.Parameter):
+                        p = p.data
+                    model.state_dict()[n[:]].copy_(p)
 
-    else:
-        model = FastSpeech2(n_spkers=1).to(device)
-        ckpt = torch.load(checkpoint_path)['model']
-        for n, p in ckpt.items():
-            if n[7:] not in model.state_dict():
-                print('not in meta_model:', n)
-                continue
-            if n[7:10]=='emb' and hp.use_pretrained_emb==False:
-                continue
-            if isinstance(p, nn.parameter.Parameter):
-                p = p.data
-            model.state_dict()[n[7:]].copy_(p)
-        
-    #model.requires_grad = False
-    #model.eval()
+            
 
     #fine-tuning
     #optimizer and loss
@@ -110,10 +131,6 @@ def get_and_fine_tune_FastSpeech2(num, loader, speaker):
     #check grad
     for n,p in model.named_parameters():
         #print(n, p.requires_grad)
-        '''
-        if n[:3] !='var':
-            p.requires_grad = False
-        '''
         if n[:3] not in hp.fine_tune_model_set or n[8:11]=='pos':
             p.requires_grad = False
         print(n, p.requires_grad)
@@ -135,16 +152,19 @@ def get_and_fine_tune_FastSpeech2(num, loader, speaker):
                 max_mel_len = np.max(data_of_batch["mel_len"]).astype(np.int32)
                
                 # Forward
-                if hp.model_mode=='baseline' and hp.use_spk_embed:
-                    spk_ids = torch.tensor([0]*hp.syn_fine_tune_batch_size).type(torch.int64).to(device)
-                    mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ = model(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids = spk_ids)
+                if hp.use_spk_embed:
+                    if hp.use_pretrained_emb:
+                        mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ = model(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len)
+                    else:
+                        spk_ids = torch.tensor([0]*len(text)).type(torch.int64).to(device)
+                        mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ = model(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len, speaker_ids = spk_ids)
                 else:
                     mel_output, mel_postnet_output, log_duration_output, f0_output, energy_output, src_mask, mel_mask, _ = model(text, src_len, mel_len, D, f0, energy, max_src_len, max_mel_len)
 
                 # Cal Loss
                 mel_loss, mel_postnet_loss, d_loss, f_loss, e_loss = Loss(
                         log_duration_output, log_D, f0_output, f0, energy_output, energy, mel_output, mel_postnet_output, mel_target, ~src_mask, ~mel_mask)
-                total_loss = mel_loss + mel_postnet_loss + d_loss + f_loss + e_loss
+                total_loss = mel_loss + mel_postnet_loss + d_loss + 0.01*f_loss + 0.1*e_loss
 
                 train_logger.add_scalar('Loss/total_loss', total_loss, current_step)
                 train_logger.add_scalar('Loss/mel_loss', mel_loss, current_step)
@@ -184,8 +204,15 @@ def synthesize(model, waveglow, melgan, text, sentence, speaker, prefix=''):
     sentence = sentence[:200] # long filename will result in OS Error
     
     src_len = torch.from_numpy(np.array([text.shape[1]])).to(device)
-        
-    mel, mel_postnet, log_duration_output, f0_output, energy_output, _, _, mel_len = model(text, src_len)
+
+    if hp.use_spk_embed:
+        if hp.use_pretrained_emb:
+            mel, mel_postnet, log_duration_output, f0_output, energy_output, _, _, mel_len = model(text, src_len)
+        else:
+            spk_ids = torch.tensor([0]*len(text)).type(torch.int64).to(device)
+            mel, mel_postnet, log_duration_output, f0_output, energy_output, _, _, mel_len = model(text, src_len, speaker_ids = spk_ids)
+    else:
+        mel, mel_postnet, log_duration_output, f0_output, energy_output, _, _, mel_len = model(text, src_len)
     
     mel_torch = mel.transpose(1, 2).detach()
     mel_postnet_torch = mel_postnet.transpose(1, 2).detach()
@@ -208,9 +235,13 @@ if __name__ == "__main__":
     # Test
     parser = argparse.ArgumentParser()
     parser.add_argument('--step', type=int, default=30000)
+    parser.add_argument('--few_shot', type=int, default=1)
     parser.add_argument('--shot', type=int, default=1000)
+    parser.add_argument('--seed', type=int, default=0)
     args = parser.parse_args()
+    print(args)
     assert(hp.model_mode in ['baseline','meta'])
+    '''
     sentences = ["Weather forecast for tonight: dark.",
             "I put a dollar in a change machine. Nothing changed.",
             "“No comment” is a comment.",
@@ -218,18 +249,19 @@ if __name__ == "__main__":
             "I am in shape. Round is a shape."
         ]
     '''
-    sentences = ["Maximilian.",
-            "Villefort rose, half ashamed of being surprised in such a paroxysm of grief.",
-            "The terrible office he had held for twenty-five years had succeeded in making him more or less than man.",
-            "His glance, at first wandering, fixed itself upon Morrel.",
-            "\"Go!--do you hear?\" said Villefort, while d'Avrigny advanced to lead Morrel out."
-        ]
-    '''
+    sentence_filename_dict = get_syn_sentences(num_sentences=5)
     syn_speaker_list = hp.synthesize_speaker_list
     for speaker in syn_speaker_list:
         print(f'fine-tuning on speaker:{speaker}')
-        dataset = Dataset(f'{speaker}.txt', few_shot=args.shot)
+        if args.few_shot:
+            print(f'using metadata:{speaker}_{args.shot}_{args.seed}.txt')
+            dataset = Dataset(f'{speaker}_{args.shot}_{args.seed}.txt', few_shot=args.shot, ft_mode=True)
+        else:
+            print(f'using metadata:{speaker}.txt')
+            dataset = Dataset(f'{speaker}.txt', ft_mode=True)
         batch_size = min(args.shot, hp.syn_fine_tune_batch_size**2)
+        print(f'shot:{len(dataset)}')
+        print(f'batch_size:{batch_size}')
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=dataset.collate_fn, drop_last=True, num_workers=0)
         model = get_and_fine_tune_FastSpeech2(args.step, loader, speaker).to(device)
         melgan = waveglow = None
@@ -239,7 +271,15 @@ if __name__ == "__main__":
         elif hp.vocoder == 'waveglow':
             waveglow = utils.get_waveglow()
             waveglow.to(device)
-        
+       
+        #get the sentences of each speaker
+        sentences = [sen_file[0] for sen_file in sentence_filename_dict[speaker]]
+        print(speaker)
+        print(sentences)
+        #record the sentences-filename
+        with open(os.path.join(hp.test_path, speaker, 'sen-file.txt'), 'w+') as F:
+            for sen_file in sentence_filename_dict[speaker]:
+                F.write(sen_file[0] + '|' + sen_file[1] + '\n')
         for sentence in sentences:
             text = preprocess(sentence)
             synthesize(model, waveglow, melgan, text, sentence, speaker, prefix='step_{}'.format(args.step))

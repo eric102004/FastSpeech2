@@ -257,10 +257,10 @@ class Dataset(Dataset):
         #self.basename_dict, self.text_dict = meta_process_meta(self.filelist, self.num_subtasks, self.meta_testing_ratio)
 
     def get_spk_emb_table(self, id_emb_table):
-        spk_list = [n[:-4] for n in hp.filelist_tr]
+        spk_list = [n[:-4] for n in hparams.filelist_tr]
         self.spk_table = dict()
         self.spk_emb_table = dict()
-        for i in range(len(spk_list))
+        for i in range(len(spk_list)):
             self.spk_table[spk_list[i]] = i
             self.spk_emb_table[spk_list[i]] = id_emb_table[i]
         self.inv_spk_emb_table = {emb:spk for spk,emb in self.spk_emb_table.items()}

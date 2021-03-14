@@ -14,7 +14,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class Dataset(Dataset):
-    def __init__(self, filename="train.txt", sort=True, few_shot=None):
+    def __init__(self, filename="train.txt", sort=True, few_shot=None, ft_mode=False):
         if type(filename)==list:
             self.basename, self.text = multi_process_meta(filename)
         else:
@@ -22,6 +22,7 @@ class Dataset(Dataset):
         self.sort = sort
         assert((few_shot==None) or (isinstance(few_shot,int)))
         self.few_shot = few_shot
+        self.ft_mode = ft_mode
 
         self.get_spk_table()
 
@@ -59,7 +60,7 @@ class Dataset(Dataset):
     def reprocess(self, batch, cut_list):
         ids = [batch[ind]["id"] for ind in cut_list]
 
-        if hparams.use_spk_embed:
+        if hparams.use_spk_embed and not self.ft_mode:
             spk_ids = [self.spk_table[_id.split("_")[0]] for _id in ids]
         texts = [batch[ind]["text"] for ind in cut_list]
         mel_targets = [batch[ind]["mel_target"] for ind in cut_list]
@@ -93,7 +94,7 @@ class Dataset(Dataset):
                "energy": energies,
                "src_len": length_text,
                "mel_len": length_mel}
-        if hparams.use_spk_embed:
+        if hparams.use_spk_embed and not self.ft_mode:
             out.update({"spk_ids": spk_ids})
         
         return out

@@ -11,6 +11,7 @@ import os
 
 import text
 import hparams as hp
+import random
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -53,6 +54,9 @@ def process_meta(meta_path):
             n, t = line.strip('\n').split('|')
             name.append(n)
             text.append(t)
+        joint_list = list(zip(text, name))
+        random.shuffle(joint_list)
+        text, name = zip(*joint_list)
         return name, text
 
 def multi_process_meta(meta_file_list):
@@ -65,6 +69,9 @@ def multi_process_meta(meta_file_list):
                 n,t = line.strip('\n').split('|')
                 name.append(n)
                 text.append(t)
+    joint_list = list(zip(text,name))
+    random.shuffle(joint_list)
+    text, name = zip(*joint_list)
     return name, text
     
 
